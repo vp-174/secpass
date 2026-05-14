@@ -1,0 +1,201 @@
+import pytest
+from pathlib import Path
+from pwduck.vault import Vault
+from pwduck.crypto import CipherSuite
+
+
+class TestVault:
+    def test_vault_creation(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+
+        assert vault_path.exists()
+        assert (vault_path / "entries").exists()
+        assert (vault_path / "groups").exists()
+        assert (vault_path / "masterkey").exists()
+
+    def test_vault_exists_false_for_new_path(self, temp_dir):
+        vault_path = temp_dir / "nonexistent_vault"
+        vault = Vault(vault_path)
+        assert not vault.exists()
+
+    def test_vault_exists_true_after_create(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        assert vault.exists()
+
+    def test_unlock_vault(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+
+        vault2 = Vault(vault_path)
+        vault2.unlock(test_password)
+        assert vault2.is_unlocked()
+
+    def test_unlock_wrong_password_raises(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+
+        vault2 = Vault(vault_path)
+        with pytest.raises(Exception):
+            vault2.unlock("wrong_password")
+
+    def test_lock_vault(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+        assert vault.is_unlocked()
+
+        vault.lock()
+        assert not vault.is_unlocked()
+
+    def test_create_entry(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        entry_uuid = vault.create_entry("Test Entry", "https://example.com")
+        assert entry_uuid is not None
+
+    def test_set_and_get_entry_body(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        entry_uuid = vault.create_entry("Test Entry", "https://example.com")
+        vault.set_entry_body(entry_uuid, "user@example.com", "secret_password")
+
+        body = vault.get_entry_body(entry_uuid)
+        assert body["username"] == "user@example.com"
+        assert body["password"] == "secret_password"
+
+    def test_get_entry_head(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        entry_uuid = vault.create_entry("My Login", "https://google.com")
+        head = vault.get_entry_head(entry_uuid)
+
+        assert head["name"] == "My Login"
+        assert head["url"] == "https://google.com"
+        assert head["uuid"] == str(entry_uuid)
+
+    def test_list_entries(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        vault.create_entry("Entry 1", "https://a.com")
+        vault.create_entry("Entry 2", "https://b.com")
+
+        entries = vault.list_entries()
+        assert len(entries) == 2
+        names = [e["name"] for e in entries]
+        assert "Entry 1" in names
+        assert "Entry 2" in names
+
+    def test_create_group(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        group_uuid = vault.create_group("Work")
+        assert group_uuid is not None
+
+    def test_get_group(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        group_uuid = vault.create_group("Personal")
+        group = vault.get_group(group_uuid)
+
+        assert group["name"] == "Personal"
+        assert group["uuid"] == str(group_uuid)
+
+    def test_create_group_with_parent(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        parent_uuid = vault.create_group("Parent")
+        child_uuid = vault.create_group("Child", parent_uuid)
+
+        child = vault.get_group(child_uuid)
+        assert child["parent"] == str(parent_uuid)
+
+    def test_list_groups(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        vault.create_group("Group 1")
+        vault.create_group("Group 2")
+
+        groups = vault.list_groups()
+        assert len(groups) == 2
+        names = [g["name"] for g in groups]
+        assert "Group 1" in names
+        assert "Group 2" in names
+
+    def test_entry_with_group(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        group_uuid = vault.create_group("Work")
+        entry_uuid = vault.create_entry("Work Login", "https://work.com", group_uuid)
+
+        head = vault.get_entry_head(entry_uuid)
+        assert head["group"] == str(group_uuid)
+
+    def test_vault_with_keyfile(self, temp_dir, test_password, keyfile):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password, keyfile)
+
+        vault2 = Vault(vault_path)
+        vault2.unlock(test_password, keyfile)
+        assert vault2.is_unlocked()
+
+    def test_vault_wrong_keyfile_fails(self, temp_dir, test_password, keyfile):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password, keyfile)
+
+        other_keyfile = temp_dir / "other.key"
+        other_keyfile.write_bytes(b"different_key_material")
+
+        vault2 = Vault(vault_path)
+        with pytest.raises(Exception):
+            vault2.unlock(test_password, other_keyfile)
+
+    def test_double_encryption_body(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        entry_uuid = vault.create_entry("Test", "https://test.com")
+        vault.set_entry_body(entry_uuid, "user", "password")
+
+        body_file = vault.entries_path / f"{vault._hash_uuid(entry_uuid)}.body"
+        encrypted_data = body_file.read_bytes()
+        decrypted_once = CipherSuite.decrypt_aes_cbc(vault._derived_key, encrypted_data)
+        with pytest.raises(Exception):
+            json.loads(decrypted_once)
