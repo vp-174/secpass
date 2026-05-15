@@ -13,7 +13,7 @@ def temp_dir():
 
 @pytest.fixture
 def test_password():
-    return "test_password_123"
+    return "VeryStrongP@ss123!Above80Bits"
 
 
 @pytest.fixture

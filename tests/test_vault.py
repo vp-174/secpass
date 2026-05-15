@@ -8,7 +8,7 @@ class TestVault:
     def test_vault_creation(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
 
         assert vault_path.exists()
         assert (vault_path / "entries").exists()
@@ -23,13 +23,13 @@ class TestVault:
     def test_vault_exists_true_after_create(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         assert vault.exists()
 
     def test_unlock_vault(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
 
         vault2 = Vault(vault_path)
         vault2.unlock(test_password)
@@ -38,7 +38,7 @@ class TestVault:
     def test_unlock_wrong_password_raises(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
 
         vault2 = Vault(vault_path)
         with pytest.raises(Exception):
@@ -47,7 +47,7 @@ class TestVault:
     def test_lock_vault(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
         assert vault.is_unlocked()
 
@@ -57,7 +57,7 @@ class TestVault:
     def test_create_entry(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         entry_uuid = vault.create_entry("Test Entry", "https://example.com")
@@ -66,7 +66,7 @@ class TestVault:
     def test_set_and_get_entry_body(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         entry_uuid = vault.create_entry("Test Entry", "https://example.com")
@@ -79,7 +79,7 @@ class TestVault:
     def test_get_entry_head(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         entry_uuid = vault.create_entry("My Login", "https://google.com")
@@ -92,7 +92,7 @@ class TestVault:
     def test_list_entries(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         vault.create_entry("Entry 1", "https://a.com")
@@ -107,7 +107,7 @@ class TestVault:
     def test_create_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         group_uuid = vault.create_group("Work")
@@ -116,7 +116,7 @@ class TestVault:
     def test_get_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         group_uuid = vault.create_group("Personal")
@@ -128,7 +128,7 @@ class TestVault:
     def test_create_group_with_parent(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         parent_uuid = vault.create_group("Parent")
@@ -140,7 +140,7 @@ class TestVault:
     def test_list_groups(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         vault.create_group("Group 1")
@@ -155,7 +155,7 @@ class TestVault:
     def test_entry_with_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         group_uuid = vault.create_group("Work")
@@ -167,7 +167,7 @@ class TestVault:
     def test_vault_with_keyfile(self, temp_dir, test_password, keyfile):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password, keyfile)
+        vault.create(test_password, keyfile, name="test_vault")
 
         vault2 = Vault(vault_path)
         vault2.unlock(test_password, keyfile)
@@ -176,7 +176,7 @@ class TestVault:
     def test_vault_wrong_keyfile_fails(self, temp_dir, test_password, keyfile):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password, keyfile)
+        vault.create(test_password, keyfile, name="test_vault")
 
         other_keyfile = temp_dir / "other.key"
         other_keyfile.write_bytes(b"different_key_material")
@@ -188,7 +188,7 @@ class TestVault:
     def test_double_encryption_body(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         entry_uuid = vault.create_entry("Test", "https://test.com")
@@ -203,7 +203,7 @@ class TestVault:
     def test_update_entry_head(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         entry_uuid = vault.create_entry("Original", "https://original.com")
@@ -216,7 +216,7 @@ class TestVault:
     def test_update_entry_with_email_notes(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         entry_uuid = vault.create_entry("Test", "https://test.com")
@@ -229,7 +229,7 @@ class TestVault:
     def test_delete_entry(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         entry_uuid = vault.create_entry("To Delete", "https://delete.com")
@@ -241,7 +241,7 @@ class TestVault:
     def test_update_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         group_uuid = vault.create_group("Original Name")
@@ -253,7 +253,7 @@ class TestVault:
     def test_delete_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)
-        vault.create(test_password)
+        vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
         group_uuid = vault.create_group("To Delete")

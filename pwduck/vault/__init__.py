@@ -16,14 +16,24 @@ class Vault:
         self.groups_path = self.path / "groups"
         self.masterkey_path = self.path / "masterkey"
         self._master_key: Optional[SecureString] = None
+        self._name: Optional[str] = None
+        self._derived_key: Optional[bytes] = None
 
     def exists(self) -> bool:
         return self.path.exists() and self.masterkey_path.exists()
 
-    def create(self, password: str, keyfile: Optional[Path] = None):
+    @property
+    def name(self) -> str:
+        if self._name:
+            return self._name
+        return self.path.name
+
+    def create(self, password: str, keyfile: Optional[Path] = None, name: Optional[str] = None):
         self.path.mkdir(parents=True, exist_ok=True)
         self.entries_path.mkdir(exist_ok=True)
         self.groups_path.mkdir(exist_ok=True)
+
+        self._name = name if name else self.path.name
 
         salt = CipherSuite.generate_salt()
         if keyfile and keyfile.exists():
@@ -35,7 +45,8 @@ class Vault:
         self._master_key = SecureString(CipherSuite.generate_master_key())
         derived_key = CipherSuite.derive_key(password_bytes, salt)
 
-        encrypted_master = CipherSuite.encrypt_aes_cbc(derived_key, self._master_key.get())
+        vault_data = json.dumps({"name": self._name}).encode()
+        encrypted_master = CipherSuite.encrypt_aes_cbc(derived_key, vault_data + b"|" + self._master_key.get())
         self.masterkey_path.write_bytes(salt + b"::" + encrypted_master)
         self._derived_key = derived_key
 
@@ -50,7 +61,16 @@ class Vault:
             password_bytes = password.encode()
 
         derived_key = CipherSuite.derive_key(password_bytes, salt)
-        master_key = CipherSuite.decrypt_aes_cbc(derived_key, encrypted_master)
+        decrypted = CipherSuite.decrypt_aes_cbc(derived_key, encrypted_master)
+
+        try:
+            vault_data_raw, master_key = decrypted.split(b"|")
+            vault_data = json.loads(vault_data_raw)
+            self._name = vault_data.get("name", self.path.name)
+        except ValueError:
+            self._name = self.path.name
+            master_key = decrypted
+
         self._master_key = SecureString(master_key)
         self._derived_key = derived_key
 
