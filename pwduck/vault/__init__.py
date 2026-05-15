@@ -78,12 +78,48 @@ class Vault:
         head_filename.write_bytes(encrypted_head)
         return entry_uuid
 
-    def set_entry_body(self, entry_uuid: uuid.UUID, username: str, password: str):
-        body = {"username": username, "password": password}
+    def set_entry_body(self, entry_uuid: uuid.UUID, username: str, password: str, email: str = "", notes: str = ""):
+        body = {"username": username, "password": password, "email": email, "notes": notes}
         body_filename = self.entries_path / f"{self._hash_uuid(entry_uuid)}.body"
         inner_encrypted = CipherSuite.encrypt_aes_cbc(self._derived_key, json.dumps(body).encode())
         outer_encrypted = CipherSuite.encrypt_aes_cbc(self._derived_key, inner_encrypted)
         body_filename.write_bytes(outer_encrypted)
+
+    def update_entry_head(self, entry_uuid: uuid.UUID, name: str, url: str, group_uuid: Optional[uuid.UUID] = None):
+        head = self.get_entry_head(entry_uuid)
+        if not head:
+            return
+        head["name"] = name
+        head["url"] = url
+        if group_uuid is not None:
+            head["group"] = str(group_uuid)
+        head_filename = self.entries_path / f"{self._hash_uuid(entry_uuid)}.head"
+        encrypted_head = CipherSuite.encrypt_aes_cbc(self._derived_key, json.dumps(head).encode())
+        head_filename.write_bytes(encrypted_head)
+
+    def delete_entry(self, entry_uuid: uuid.UUID):
+        head_file = self.entries_path / f"{self._hash_uuid(entry_uuid)}.head"
+        body_file = self.entries_path / f"{self._hash_uuid(entry_uuid)}.body"
+        if head_file.exists():
+            head_file.unlink()
+        if body_file.exists():
+            body_file.unlink()
+
+    def update_group(self, group_uuid: uuid.UUID, name: str, parent_uuid: Optional[uuid.UUID] = None):
+        group = self.get_group(group_uuid)
+        if not group:
+            return
+        group["name"] = name
+        if parent_uuid is not None:
+            group["parent"] = str(parent_uuid)
+        group_filename = self.groups_path / f"{self._hash_uuid(group_uuid)}.group"
+        encrypted_group = CipherSuite.encrypt_aes_cbc(self._derived_key, json.dumps(group).encode())
+        group_filename.write_bytes(encrypted_group)
+
+    def delete_group(self, group_uuid: uuid.UUID):
+        group_file = self.groups_path / f"{self._hash_uuid(group_uuid)}.group"
+        if group_file.exists():
+            group_file.unlink()
 
     def get_entry_head(self, entry_uuid: uuid.UUID) -> Optional[Dict[str, Any]]:
         head_filename = self.entries_path / f"{self._hash_uuid(entry_uuid)}.head"

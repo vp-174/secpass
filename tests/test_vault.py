@@ -199,3 +199,65 @@ class TestVault:
         decrypted_once = CipherSuite.decrypt_aes_cbc(vault._derived_key, encrypted_data)
         with pytest.raises(Exception):
             json.loads(decrypted_once)
+
+    def test_update_entry_head(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        entry_uuid = vault.create_entry("Original", "https://original.com")
+        vault.update_entry_head(entry_uuid, "Updated", "https://updated.com")
+
+        head = vault.get_entry_head(entry_uuid)
+        assert head["name"] == "Updated"
+        assert head["url"] == "https://updated.com"
+
+    def test_update_entry_with_email_notes(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        entry_uuid = vault.create_entry("Test", "https://test.com")
+        vault.set_entry_body(entry_uuid, "user", "pass", "test@example.com", "Some notes")
+
+        body = vault.get_entry_body(entry_uuid)
+        assert body["email"] == "test@example.com"
+        assert body["notes"] == "Some notes"
+
+    def test_delete_entry(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        entry_uuid = vault.create_entry("To Delete", "https://delete.com")
+        vault.delete_entry(entry_uuid)
+
+        head = vault.get_entry_head(entry_uuid)
+        assert head is None
+
+    def test_update_group(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        group_uuid = vault.create_group("Original Name")
+        vault.update_group(group_uuid, "New Name")
+
+        group = vault.get_group(group_uuid)
+        assert group["name"] == "New Name"
+
+    def test_delete_group(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password)
+        vault.unlock(test_password)
+
+        group_uuid = vault.create_group("To Delete")
+        vault.delete_group(group_uuid)
+
+        group = vault.get_group(group_uuid)
+        assert group is None

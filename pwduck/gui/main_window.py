@@ -1,5 +1,7 @@
 import sys
 import uuid
+import math
+import re
 from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
@@ -12,11 +14,268 @@ from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtGui import QIcon, QAction
 
 
+def calculate_entropy(password: str) -> float:
+    if not password:
+        return 0.0
+
+    char_sets = 0
+    if re.search(r'[a-z]', password):
+        char_sets += 1
+    if re.search(r'[A-Z]', password):
+        char_sets += 1
+    if re.search(r'[0-9]', password):
+        char_sets += 1
+    if re.search(r'[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]', password):
+        char_sets += 1
+
+    pool_size = 0
+    if char_sets == 0:
+        return 0.0
+
+    if re.search(r'[a-z]', password):
+        pool_size += 26
+    if re.search(r'[A-Z]', password):
+        pool_size += 26
+    if re.search(r'[0-9]', password):
+        pool_size += 10
+    if re.search(r'[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]', password):
+        pool_size += 32
+
+    if pool_size == 0:
+        pool_size = 26
+
+    entropy = len(password) * math.log2(pool_size)
+    return entropy
+
+
+def get_strength_level(entropy: float) -> tuple:
+    if entropy < 28:
+        return 1, "Very Weak", "#ff0000"
+    elif entropy < 36:
+        return 2, "Weak", "#ff4400"
+    elif entropy < 60:
+        return 3, "Fair", "#ff8800"
+    elif entropy < 80:
+        return 4, "Strong", "#88ff00"
+    else:
+        return 5, "Very Strong", "#00ff00"
+
+
+class PasswordStrengthBar(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._entropy = 0
+        self._level = 0
+        self._label = ""
+        self._color = "#333333"
+        self.setMinimumHeight(8)
+        self.setMaximumHeight(8)
+
+    def set_entropy(self, entropy: float):
+        self._entropy = entropy
+        self._level, self._label, self._color = get_strength_level(entropy)
+        self.update()
+
+    def paintEvent(self, event):
+        from PySide6.QtGui import QPainter, QColor
+        painter = QPainter(self)
+        w = self.width()
+        h = self.height()
+
+        painter.fillRect(0, 0, w, h, QColor("#222222"))
+
+        bar_width = w // 5
+        for i in range(5):
+            color = self._color if i < self._level else "#444444"
+            painter.fillRect(i * bar_width + 1, 1, bar_width - 2, h - 2, QColor(color))
+
+
+class VaultCreationDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Create New Vault")
+        self.setMinimumSize(450, 400)
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+
+        self.vault_name = QLineEdit()
+        self.vault_name.setPlaceholderText("Vault Name")
+        form.addRow("Name:", self.vault_name)
+
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.textChanged.connect(self._on_password_changed)
+        form.addRow("Password:", self.password_input)
+
+        self.strength_bar = PasswordStrengthBar()
+        form.addRow("", self.strength_bar)
+
+        self.strength_label = QLabel("")
+        self.strength_label.setStyleSheet("font-size: 11px; color: #888;")
+        form.addRow("", self.strength_label)
+
+        self.confirm_password = QLineEdit()
+        self.confirm_password.setEchoMode(QLineEdit.Password)
+        self.confirm_password.textChanged.connect(self._on_confirm_changed)
+        form.addRow("Confirm:", self.confirm_password)
+
+        self.confirm_label = QLabel("")
+        form.addRow("", self.confirm_label)
+
+        self.use_keyfile = QCheckBox("Use a key file as 2nd factor")
+        form.addRow("", self.use_keyfile)
+
+        self.keyfile_path = QLineEdit()
+        self.keyfile_path.setPlaceholderText("Key file path (optional)")
+        keyfile_btn = QPushButton("Browse...")
+        keyfile_btn.clicked.connect(self._on_browse_keyfile)
+        keyfile_layout = QHBoxLayout()
+        keyfile_layout.addWidget(self.keyfile_path)
+        keyfile_layout.addWidget(keyfile_btn)
+        form.addRow("", keyfile_layout)
+
+        self.use_keyfile.stateChanged.connect(self._on_keyfile_toggled)
+        self._on_keyfile_toggled()
+
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Create Vault")
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _on_password_changed(self, text):
+        entropy = calculate_entropy(text)
+        self.strength_bar.set_entropy(entropy)
+        level, label, color = get_strength_level(entropy)
+        self.strength_label.setText(f"{label} - {int(entropy)} bits entropy")
+        self.strength_label.setStyleSheet(f"font-size: 11px; color: {color};")
+
+    def _on_confirm_changed(self, text):
+        if self.password_input.text() and self.confirm_password.text():
+            if self.password_input.text() == self.confirm_password.text():
+                self.confirm_label.setText("✓ Passwords match")
+                self.confirm_label.setStyleSheet("color: green;")
+            else:
+                self.confirm_label.setText("✗ Passwords do not match")
+                self.confirm_label.setStyleSheet("color: red;")
+        else:
+            self.confirm_label.setText("")
+
+    def _on_keyfile_toggled(self):
+        enabled = self.use_keyfile.isChecked()
+        self.keyfile_path.setEnabled(enabled)
+
+    def _on_browse_keyfile(self):
+        file, _ = QFileDialog.getSaveFileName(self, "Create Key File", "", "All Files (*)")
+        if file:
+            with open(file, 'wb') as f:
+                f.write(b'\x00' * 32)
+            self.keyfile_path.setText(file)
+
+    def _on_accept(self):
+        if not self.vault_name.text():
+            QMessageBox.warning(self, "Error", "Please enter a vault name.")
+            return
+        if not self.password_input.text():
+            QMessageBox.warning(self, "Error", "Please enter a password.")
+            return
+        if self.password_input.text() != self.confirm_password.text():
+            QMessageBox.warning(self, "Error", "Passwords do not match.")
+            return
+
+        entropy = calculate_entropy(self.password_input.text())
+        if entropy < 28:
+            reply = QMessageBox.question(
+                self, "Weak Password",
+                "This password is very weak. Are you sure you want to use it?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+
+        self.accept()
+
+    def get_data(self):
+        return {
+            "name": self.vault_name.text(),
+            "password": self.password_input.text(),
+            "keyfile": Path(self.keyfile_path.text()) if self.use_keyfile.isChecked() and self.keyfile_path.text() else None
+        }
+
+
+class VaultDeleteDialog(QDialog):
+    def __init__(self, vault_path: Path, parent=None):
+        super().__init__(parent)
+        self.vault_path = vault_path
+        self.setWindowTitle("Delete Vault")
+        self.setMinimumSize(400, 200)
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel(f"Delete vault at:"))
+        layout.addWidget(QLabel(str(self.vault_path)))
+
+        layout.addWidget(QLabel(""))
+
+        layout.addWidget(QLabel("To confirm, enter the vault name:"))
+
+        self.vault_name_input = QLineEdit()
+        self.vault_name_input.setPlaceholderText("Vault name")
+        layout.addWidget(self.vault_name_input)
+
+        layout.addWidget(QLabel("And master password:"))
+
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        layout.addWidget(self.password_input)
+
+        self.status_label = QLabel("")
+        layout.addWidget(self.status_label)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Delete Vault")
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _on_accept(self):
+        expected_name = self.vault_path.name
+
+        if self.vault_name_input.text() != expected_name:
+            self.status_label.setText("Vault name does not match!")
+            self.status_label.setStyleSheet("color: red;")
+            return
+
+        from pwduck.vault import Vault
+        vault = Vault(self.vault_path)
+        if not vault.exists():
+            QMessageBox.warning(self, "Error", "Vault does not exist.")
+            return
+
+        try:
+            vault.unlock(self.password_input.text())
+            vault.lock()
+            import shutil
+            shutil.rmtree(self.vault_path)
+            self.accept()
+        except Exception as e:
+            self.status_label.setText(f"Error: {e}")
+            self.status_label.setStyleSheet("color: red;")
+
+
 class PasswordGeneratorDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Password Generator")
-        self.setMinimumSize(400, 300)
+        self.setMinimumSize(450, 350)
         self._init_ui()
         self._generate()
 
@@ -28,9 +287,19 @@ class PasswordGeneratorDialog(QDialog):
         self.password_display.setStyleSheet("font-size: 16px; font-family: monospace;")
         layout.addWidget(self.password_display)
 
+        self.strength_bar = PasswordStrengthBar()
+        layout.addWidget(self.strength_bar)
+
+        self.strength_label = QLabel("")
+        self.strength_label.setStyleSheet("font-size: 11px; color: #888;")
+        layout.addWidget(self.strength_label)
+
+        btn_layout = QHBoxLayout()
         regenerate_btn = QPushButton("Generate New")
         regenerate_btn.clicked.connect(self._generate)
-        layout.addWidget(regenerate_btn)
+        btn_layout.addWidget(regenerate_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
 
         options_group = QGroupBox("Options")
         options_layout = QGridLayout(options_group)
@@ -88,78 +357,21 @@ class PasswordGeneratorDialog(QDialog):
         password = "".join(random.choice(chars) for _ in range(length))
         self.password_display.setText(password)
 
+        entropy = calculate_entropy(password)
+        self.strength_bar.set_entropy(entropy)
+        level, label, color = get_strength_level(entropy)
+        self.strength_label.setText(f"{label} - {int(entropy)} bits entropy")
+        self.strength_label.setStyleSheet(f"font-size: 11px; color: {color};")
+
     def get_password(self):
         return self.password_display.text()
-
-
-class PasswordStrengthIndicator(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._score = 0
-        self.setMinimumHeight(20)
-        self.setMaximumHeight(20)
-
-    def set_score(self, score):
-        self._score = max(0, min(100, score))
-        self.update()
-
-    def paintEvent(self, event):
-        from PySide6.QtGui import QPainter, QColor, QPen
-        painter = QPainter(self)
-        w = self.width()
-        h = self.height()
-
-        colors = [QColor("#ff0000"), QColor("#ff4400"), QColor("#ff8800"), QColor("#ffff00"), QColor("#88ff00"), QColor("#00ff00")]
-        color = colors[min(self._score // 20, 5)]
-
-        painter.fillRect(0, 0, w, h, QColor("#333333"))
-        fill_width = int(w * self._score / 100)
-        if fill_width > 0:
-            painter.fillRect(0, 0, fill_width, h, color)
-
-        painter.setPen(QColor("#ffffff"))
-        painter.drawText(self.rect(), Qt.AlignCenter, f"{self._score}%")
-
-    def calculate_strength(self, password):
-        if not password:
-            self.set_score(0)
-            return
-
-        score = 0
-
-        if len(password) >= 8:
-            score += 10
-        if len(password) >= 12:
-            score += 10
-        if len(password) >= 16:
-            score += 10
-
-        has_lower = any(c.islower() for c in password)
-        has_upper = any(c.isupper() for c in password)
-        has_digit = any(c.isdigit() for c in password)
-        has_special = any(not c.isalnum() for c in password)
-
-        if has_lower:
-            score += 15
-        if has_upper:
-            score += 15
-        if has_digit:
-            score += 15
-        if has_special:
-            score += 25
-
-        common_passwords = ["password", "123456", "qwerty", "admin", "letmein", "welcome"]
-        if password.lower() in common_passwords:
-            score = max(score - 50, 5)
-
-        self.set_score(score)
 
 
 class EntryDialog(QDialog):
     def __init__(self, entry_data=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Entry" if not entry_data else "Edit Entry")
-        self.setMinimumSize(500, 400)
+        self.setMinimumSize(500, 500)
         self.entry_data = entry_data or {}
         self._init_ui()
 
@@ -173,7 +385,6 @@ class EntryDialog(QDialog):
 
         username_layout = QHBoxLayout()
         self.username_input = QLineEdit(self.entry_data.get("username", ""))
-        self.username_input.textChanged.connect(self._on_username_changed)
         username_layout.addWidget(self.username_input)
 
         self.copy_username_btn = QPushButton("Copy")
@@ -201,8 +412,15 @@ class EntryDialog(QDialog):
         password_layout.addWidget(self.gen_password_btn)
         form.addRow("Password:", password_layout)
 
-        self.strength_indicator = PasswordStrengthIndicator()
-        form.addRow("Strength:", self.strength_indicator)
+        self.strength_bar = PasswordStrengthBar()
+        form.addRow("Strength:", self.strength_bar)
+
+        self.strength_label = QLabel("")
+        self.strength_label.setStyleSheet("font-size: 11px; color: #888;")
+        form.addRow("", self.strength_label)
+
+        if self.entry_data.get("password"):
+            self._on_password_changed(self.entry_data.get("password"))
 
         self.url_input = QLineEdit(self.entry_data.get("url", ""))
         form.addRow("URL:", self.url_input)
@@ -223,20 +441,19 @@ class EntryDialog(QDialog):
         layout.addWidget(buttons)
 
     def _on_password_changed(self, text):
-        self.strength_indicator.calculate_strength(text)
-
-    def _on_username_changed(self, text):
-        pass
+        entropy = calculate_entropy(text)
+        self.strength_bar.set_entropy(entropy)
+        level, label, color = get_strength_level(entropy)
+        self.strength_label.setText(f"{label} - {int(entropy)} bits entropy")
+        self.strength_label.setStyleSheet(f"font-size: 11px; color: {color};")
 
     def _toggle_password(self, checked):
         self.password_input.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
 
     def _copy_username(self):
-        from PySide6.QtWidgets import QApplication
         QApplication.clipboard().setText(self.username_input.text())
 
     def _copy_password(self):
-        from PySide6.QtWidgets import QApplication
         QApplication.clipboard().setText(self.password_input.text())
 
     def _generate_password(self):
@@ -259,7 +476,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PWDuck - Password Manager")
-        self.resize(900, 600)
+        self.resize(1000, 650)
         self.vault = None
         self._init_ui()
         self._create_menu()
@@ -289,6 +506,12 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
+        delete_vault_action = QAction("Delete Vault", self)
+        delete_vault_action.triggered.connect(self._on_delete_vault)
+        file_menu.addAction(delete_vault_action)
+
+        file_menu.addSeparator()
+
         lock_action = QAction("Lock Vault", self)
         lock_action.triggered.connect(self._on_lock)
         file_menu.addAction(lock_action)
@@ -300,52 +523,59 @@ class MainWindow(QMainWindow):
     def _create_login_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setSpacing(20)
-        layout.setContentsMargins(100, 100, 100, 100)
+        layout.setSpacing(15)
+        layout.setContentsMargins(100, 80, 100, 80)
 
         title = QLabel("PWDuck")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 28px; font-weight: bold;")
+        title.setStyleSheet("font-size: 32px; font-weight: bold;")
         layout.addWidget(title)
 
-        subtitle = QLabel("Password Manager")
+        subtitle = QLabel("Secure Password Manager")
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("font-size: 14px; color: #666;")
+        subtitle.setStyleSheet("font-size: 14px; color: #888;")
         layout.addWidget(subtitle)
 
         layout.addSpacing(30)
 
-        self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("Master Password")
-        self.password_input.setEchoMode(QLineEdit.Password)
-        self.password_input.returnPressed.connect(self._on_unlock)
-        layout.addWidget(self.password_input)
+        form = QFormLayout()
+        form.setSpacing(10)
 
         self.vault_path_input = QLineEdit()
-        self.vault_path_input.setPlaceholderText("Vault Path")
         self.vault_path_input.setText(str(Path.cwd() / "vault"))
-        layout.addWidget(self.vault_path_input)
+        path_layout = QHBoxLayout()
+        path_layout.addWidget(self.vault_path_input)
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self._on_browse_vault)
+        path_layout.addWidget(browse_btn)
+        form.addRow("Vault Path:", path_layout)
+
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.returnPressed.connect(self._on_unlock)
+        form.addRow("Master Password:", self.password_input)
 
         self.keyfile_input = QLineEdit()
-        self.keyfile_input.setPlaceholderText("Key File (optional)")
-        layout.addWidget(self.keyfile_input)
-
-        keyfile_btn = QPushButton("Browse...")
-        keyfile_btn.clicked.connect(self._on_browse_keyfile)
+        self.keyfile_input.setPlaceholderText("Optional key file")
         keyfile_layout = QHBoxLayout()
         keyfile_layout.addWidget(self.keyfile_input)
+        keyfile_btn = QPushButton("Browse...")
+        keyfile_btn.clicked.connect(self._on_browse_keyfile)
         keyfile_layout.addWidget(keyfile_btn)
-        layout.addLayout(keyfile_layout)
+        form.addRow("Key File:", keyfile_layout)
+
+        layout.addLayout(form)
 
         layout.addSpacing(20)
 
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
         self.unlock_btn = QPushButton("Unlock")
-        self.unlock_btn.setMinimumHeight(40)
+        self.unlock_btn.setMinimumHeight(45)
         self.unlock_btn.clicked.connect(self._on_unlock)
-        self.create_btn = QPushButton("Create Vault")
-        self.create_btn.setMinimumHeight(40)
-        self.create_btn.clicked.connect(self._on_create)
+        self.create_btn = QPushButton("Create New Vault")
+        self.create_btn.setMinimumHeight(45)
+        self.create_btn.clicked.connect(self._on_create_vault)
         btn_layout.addWidget(self.unlock_btn)
         btn_layout.addWidget(self.create_btn)
         layout.addLayout(btn_layout)
@@ -364,6 +594,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
 
         toolbar = QHBoxLayout()
+        toolbar.setSpacing(5)
 
         self.add_entry_btn = QPushButton("Add Entry")
         self.add_entry_btn.clicked.connect(self._on_add_entry)
@@ -373,6 +604,16 @@ class MainWindow(QMainWindow):
         self.add_group_btn.clicked.connect(self._on_add_group)
         toolbar.addWidget(self.add_group_btn)
 
+        self.edit_group_btn = QPushButton("Edit Group")
+        self.edit_group_btn.clicked.connect(self._on_edit_group)
+        toolbar.addWidget(self.edit_group_btn)
+
+        self.delete_group_btn = QPushButton("Delete Group")
+        self.delete_group_btn.clicked.connect(self._on_delete_group)
+        toolbar.addWidget(self.delete_group_btn)
+
+        toolbar.addSpacing(10)
+
         self.edit_btn = QPushButton("Edit")
         self.edit_btn.clicked.connect(self._on_edit_entry)
         toolbar.addWidget(self.edit_btn)
@@ -380,6 +621,14 @@ class MainWindow(QMainWindow):
         self.delete_btn = QPushButton("Delete")
         self.delete_btn.clicked.connect(self._on_delete_entry)
         toolbar.addWidget(self.delete_btn)
+
+        toolbar.addSpacing(10)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search entries...")
+        self.search_input.textChanged.connect(self._on_search)
+        self.search_input.setMinimumWidth(200)
+        toolbar.addWidget(self.search_input)
 
         toolbar.addStretch()
 
@@ -402,20 +651,25 @@ class MainWindow(QMainWindow):
         self.groups_tree = QTreeWidget()
         self.groups_tree.setHeaderLabel("Groups")
         self.groups_tree.itemClicked.connect(self._on_group_clicked)
+        self.groups_tree.itemDoubleClicked.connect(self._on_group_double_click)
         splitter.addWidget(self.groups_tree)
 
         self.entries_list = QTreeWidget()
-        self.entries_list.setHeaderLabel("Entries")
-        self.entries_list.setColumnCount(2)
-        self.entries_list.setHeaderLabels(["Name", "URL"])
+        self.entries_list.setHeaderLabels(["Name"])
+        self.entries_list.setColumnCount(1)
         self.entries_list.itemDoubleClicked.connect(self._on_entry_double_click)
         splitter.addWidget(self.entries_list)
 
-        splitter.setSizes([250, 450])
+        splitter.setSizes([250, 500])
 
         layout.addWidget(splitter)
 
         self.stack.addWidget(page)
+
+    def _on_browse_vault(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Vault Folder")
+        if folder:
+            self.vault_path_input.setText(folder)
 
     def _on_browse_keyfile(self):
         file, _ = QFileDialog.getOpenFileName(self, "Select Key File", "", "All Files (*)")
@@ -423,16 +677,35 @@ class MainWindow(QMainWindow):
             self.keyfile_input.setText(file)
 
     def _on_new_vault(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Vault Location")
-        if folder:
-            self.vault_path_input.setText(folder)
-            self.password_input.setFocus()
+        dialog = VaultCreationDialog(self)
+        if dialog.exec():
+            data = dialog.get_data()
+            vault_path = Path(self.vault_path_input.text()) / data["name"]
+
+            from pwduck.vault import Vault
+            vault = Vault(vault_path)
+            vault.create(data["password"], data.get("keyfile"))
+
+            self.vault_path_input.setText(str(vault_path))
+            QMessageBox.information(self, "Success", f"Vault created at: {vault_path}")
 
     def _on_open_vault(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Vault Folder")
         if folder:
             self.vault_path_input.setText(folder)
+            self.password_input.setFocus()
             self._on_unlock()
+
+    def _on_delete_vault(self):
+        vault_path = Path(self.vault_path_input.text())
+        if not vault_path.exists():
+            QMessageBox.warning(self, "Error", "Vault does not exist.")
+            return
+
+        dialog = VaultDeleteDialog(vault_path, self)
+        if dialog.exec():
+            self.vault_path_input.setText("")
+            QMessageBox.information(self, "Success", "Vault deleted.")
 
     def _on_unlock(self):
         from pwduck.vault import Vault
@@ -449,26 +722,28 @@ class MainWindow(QMainWindow):
             self._refresh_view()
             self.stack.setCurrentIndex(1)
             self.status_label.setText("")
+            self.setWindowTitle(f"PWDuck - {vault_path.name}")
         except Exception as e:
             self.status_label.setText(f"Failed to unlock: {e}")
 
-    def _on_create(self):
+    def _on_create_vault(self):
         from pwduck.vault import Vault
         vault_path = Path(self.vault_path_input.text())
         self.vault = Vault(vault_path)
 
         if self.vault.exists():
-            self.status_label.setText("Vault already exists.")
+            self.status_label.setText("Vault already exists. Unlock it or choose another location.")
             return
 
         if not self.password_input.text():
-            self.status_label.setText("Password cannot be empty.")
+            self.status_label.setText("Please enter a password.")
             return
 
         try:
             keyfile = Path(self.keyfile_input.text()) if self.keyfile_input.text() else None
             self.vault.create(self.password_input.text(), keyfile)
             self.status_label.setText("Vault created! Now unlock it.")
+            self.status_label.setStyleSheet("color: green;")
         except Exception as e:
             self.status_label.setText(f"Failed to create: {e}")
 
@@ -478,17 +753,19 @@ class MainWindow(QMainWindow):
             self.vault = None
             self.stack.setCurrentIndex(0)
             self.password_input.clear()
+            self.setWindowTitle("PWDuck - Password Manager")
 
     def _refresh_view(self):
         self._refresh_groups()
         self._refresh_entries()
 
-    def _refresh_groups(self):
+    def _refresh_groups(self, search_mode=False):
         self.groups_tree.clear()
 
-        root_item = QTreeWidgetItem(["All Entries"])
-        root_item.setData(0, Qt.UserRole, None)
-        self.groups_tree.addTopLevelItem(root_item)
+        if not search_mode:
+            root_item = QTreeWidgetItem(["All Entries"])
+            root_item.setData(0, Qt.UserRole, None)
+            self.groups_tree.addTopLevelItem(root_item)
 
         if self.vault:
             for group in self.vault.list_groups():
@@ -498,7 +775,7 @@ class MainWindow(QMainWindow):
 
         self.groups_tree.expandAll()
 
-    def _refresh_entries(self, group_uuid=None):
+    def _refresh_entries(self, group_uuid=None, search_query=None):
         self.entries_list.clear()
 
         if not self.vault:
@@ -508,13 +785,28 @@ class MainWindow(QMainWindow):
             if group_uuid and entry.get("group") != group_uuid:
                 continue
 
-            item = QTreeWidgetItem([entry["name"], entry.get("url", "")])
+            if search_query:
+                name = entry.get("name", "").lower()
+                url = entry.get("url", "").lower()
+                if search_query.lower() not in name and search_query.lower() not in url:
+                    continue
+
+            item = QTreeWidgetItem([entry["name"]])
             item.setData(0, Qt.UserRole, entry["uuid"])
             self.entries_list.addTopLevelItem(item)
 
     def _on_group_clicked(self, item, column):
         group_uuid = item.data(0, Qt.UserRole)
-        self._refresh_entries(group_uuid)
+        search_query = self.search_input.text()
+        self._refresh_entries(group_uuid, search_query if search_query else None)
+
+    def _on_search(self, text):
+        if text:
+            self._refresh_groups(search_mode=True)
+            self._refresh_entries(search_query=text)
+        else:
+            self._refresh_groups()
+            self._refresh_entries()
 
     def _on_add_entry(self):
         if not self.vault:
@@ -523,7 +815,7 @@ class MainWindow(QMainWindow):
         selected = self.groups_tree.currentItem()
         group_uuid = selected.data(0, Qt.UserRole) if selected else None
 
-        dialog = EntryDialog(self)
+        dialog = EntryDialog(parent=self)
         if dialog.exec():
             data = dialog.get_data()
             entry_uuid = self.vault.create_entry(data["name"], data["url"], group_uuid)
@@ -551,6 +843,60 @@ class MainWindow(QMainWindow):
             self.vault.create_group(name_input.text())
             self._refresh_groups()
 
+    def _on_edit_group(self):
+        selected = self.groups_tree.currentItem()
+        if not selected:
+            return
+
+        group_uuid = selected.data(0, Qt.UserRole)
+        if not group_uuid:
+            return
+
+        group = self.vault.get_group(uuid.UUID(group_uuid))
+        if not group:
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Edit Group")
+        layout = QVBoxLayout(dialog)
+
+        name_input = QLineEdit(group["name"])
+        name_input.setPlaceholderText("Group Name")
+        layout.addWidget(name_input)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() and name_input.text():
+            self.vault.update_group(uuid.UUID(group_uuid), name_input.text())
+            self._refresh_groups()
+
+    def _on_delete_group(self):
+        selected = self.groups_tree.currentItem()
+        if not selected:
+            return
+
+        group_uuid = selected.data(0, Qt.UserRole)
+        if not group_uuid:
+            return
+
+        reply = QMessageBox.question(
+            self, "Delete Group",
+            "Are you sure you want to delete this group?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.vault.delete_group(uuid.UUID(group_uuid))
+            self._refresh_groups()
+
+    def _on_group_double_click(self, item, column):
+        group_uuid = item.data(0, Qt.UserRole)
+        if group_uuid:
+            self._on_edit_group()
+
     def _on_edit_entry(self):
         self._edit_selected_entry()
 
@@ -562,24 +908,28 @@ class MainWindow(QMainWindow):
         if not selected:
             return
 
-        entry_uuid = selected.data(0, Qt.UserRole)
-        if not entry_uuid:
+        entry_uuid_str = selected.data(0, Qt.UserRole)
+        if not entry_uuid_str:
             return
 
-        head = self.vault.get_entry_head(uuid.UUID(entry_uuid))
-        body = self.vault.get_entry_body(uuid.UUID(entry_uuid))
+        entry_uuid = uuid.UUID(entry_uuid_str)
+        head = self.vault.get_entry_head(entry_uuid)
+        body = self.vault.get_entry_body(entry_uuid)
 
         entry_data = {
-            "name": head.get("name", ""),
-            "url": head.get("url", ""),
+            "name": head.get("name", "") if head else "",
+            "url": head.get("url", "") if head else "",
             "username": body.get("username", "") if body else "",
             "password": body.get("password", "") if body else "",
+            "email": body.get("email", "") if body else "",
+            "notes": body.get("notes", "") if body else "",
         }
 
         dialog = EntryDialog(entry_data, self)
         if dialog.exec():
             data = dialog.get_data()
-            self.vault.set_entry_body(uuid.UUID(entry_uuid), data["username"], data["password"])
+            self.vault.update_entry_head(entry_uuid, data["name"], data["url"])
+            self.vault.set_entry_body(entry_uuid, data["username"], data["password"], data.get("email", ""), data.get("notes", ""))
             self._refresh_view()
 
     def _on_delete_entry(self):
@@ -594,7 +944,15 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
-            pass
+            entry_uuid = selected.data(0, Qt.UserRole)
+            if entry_uuid:
+                head_file = self.vault.entries_path / f"{self.vault._hash_uuid(uuid.UUID(entry_uuid))}.head"
+                body_file = self.vault.entries_path / f"{self.vault._hash_uuid(uuid.UUID(entry_uuid))}.body"
+                if head_file.exists():
+                    head_file.unlink()
+                if body_file.exists():
+                    body_file.unlink()
+                self._refresh_view()
 
     def _on_copy_username(self):
         selected = self.entries_list.currentItem()
@@ -605,7 +963,6 @@ class MainWindow(QMainWindow):
         if entry_uuid:
             body = self.vault.get_entry_body(uuid.UUID(entry_uuid))
             if body:
-                from PySide6.QtWidgets import QApplication
                 QApplication.clipboard().setText(body.get("username", ""))
 
     def _on_copy_password(self):
@@ -617,7 +974,6 @@ class MainWindow(QMainWindow):
         if entry_uuid:
             body = self.vault.get_entry_body(uuid.UUID(entry_uuid))
             if body:
-                from PySide6.QtWidgets import QApplication
                 QApplication.clipboard().setText(body.get("password", ""))
 
 
