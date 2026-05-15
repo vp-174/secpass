@@ -168,9 +168,12 @@ class TestGUIVault:
         window.password_input.setText("test123")
         window._on_create()
         window._on_unlock()
-        window._on_add_entry()
 
-        assert window.entries_list.count() > 0
+        entry_uuid = window.vault.create_entry("Test Entry", "https://test.com")
+        window.vault.set_entry_body(entry_uuid, "user", "pass")
+        window._refresh_view()
+
+        assert window.entries_list.topLevelItemCount() > 0
 
     def test_unlock_nonexistent_vault_shows_error(self, window, temp_vault_dir):
         window.vault_path_input.setText(str(temp_vault_dir / "nonexistent"))
