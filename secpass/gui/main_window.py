@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QListWidget, QStackedWidget, QMessageBox, QDialog,
     QDialogButtonBox, QFormLayout, QTreeWidget, QTreeWidgetItem, QScrollArea,
     QWidget as QWidgetBase, QGridLayout, QGroupBox, QCheckBox, QSlider,
-    QSpinBox, QTextEdit, QFileDialog, QSplitter, QTabWidget
+    QSpinBox, QTextEdit, QFileDialog, QSplitter, QTabWidget, QSizePolicy,
+    QLayout
 )
 from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtGui import QIcon, QAction
@@ -327,14 +328,19 @@ class EntryDialog(QDialog):
     def __init__(self, entry_data=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Entry" if not entry_data else "Edit Entry")
-        self.setMinimumSize(500, 500)
+        self.setMinimumSize(500, 0)
         self.entry_data = entry_data or {}
         self._init_ui()
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.layout().setSizeConstraint(QLayout.SetMinAndMaxSize)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(8)
 
         form = QFormLayout()
+        form.setSpacing(6)
+        form.setLabelAlignment(Qt.AlignRight)
 
         self.title_input = QLineEdit(self.entry_data.get("name", ""))
         form.addRow("Title:", self.title_input)
@@ -343,7 +349,9 @@ class EntryDialog(QDialog):
         self.username_input = QLineEdit(self.entry_data.get("username", ""))
         username_layout.addWidget(self.username_input)
 
-        self.copy_username_btn = QPushButton("Copy")
+        self.copy_username_btn = QPushButton()
+        self.copy_username_btn.setIcon(QIcon.fromTheme("edit-copy"))
+        self.copy_username_btn.setToolTip("Copy username")
         self.copy_username_btn.clicked.connect(self._copy_username)
         username_layout.addWidget(self.copy_username_btn)
         form.addRow("Username:", username_layout)
@@ -354,16 +362,22 @@ class EntryDialog(QDialog):
         self.password_input.textChanged.connect(self._on_password_changed)
         password_layout.addWidget(self.password_input)
 
-        self.show_password_btn = QPushButton("Show")
+        self.show_password_btn = QPushButton()
+        self.show_password_btn.setIcon(QIcon.fromTheme("accessories-dictionary"))
         self.show_password_btn.setCheckable(True)
+        self.show_password_btn.setToolTip("Show/Hide password")
         self.show_password_btn.toggled.connect(self._toggle_password)
         password_layout.addWidget(self.show_password_btn)
 
-        self.copy_password_btn = QPushButton("Copy")
+        self.copy_password_btn = QPushButton()
+        self.copy_password_btn.setIcon(QIcon.fromTheme("edit-copy"))
+        self.copy_password_btn.setToolTip("Copy password")
         self.copy_password_btn.clicked.connect(self._copy_password)
         password_layout.addWidget(self.copy_password_btn)
 
-        self.gen_password_btn = QPushButton("Generate")
+        self.gen_password_btn = QPushButton()
+        self.gen_password_btn.setIcon(QIcon.fromTheme("accessories-calculator"))
+        self.gen_password_btn.setToolTip("Generate password")
         self.gen_password_btn.clicked.connect(self._generate_password)
         password_layout.addWidget(self.gen_password_btn)
         form.addRow("Password:", password_layout)
@@ -386,7 +400,8 @@ class EntryDialog(QDialog):
 
         self.notes_input = QTextEdit()
         self.notes_input.setPlainText(self.entry_data.get("notes", ""))
-        self.notes_input.setMaximumHeight(80)
+        self.notes_input.setMaximumHeight(60)
+        self.notes_input.setFont(self.font())
         form.addRow("Notes:", self.notes_input)
 
         layout.addLayout(form)
@@ -417,6 +432,7 @@ class EntryDialog(QDialog):
 
     def _toggle_password(self, checked):
         self.password_input.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
+        self.show_password_btn.setIcon(QIcon.fromTheme("view-hidden" if checked else "view可见"))
 
     def _copy_username(self):
         QApplication.clipboard().setText(self.username_input.text())
@@ -457,16 +473,31 @@ class MainWindow(QMainWindow):
         self.vaults = {}
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
+        self.tabs.setDocumentMode(False)
         self.tabs.tabCloseRequested.connect(self._on_close_tab)
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane { border: 0; }
+            QTabBar::close-button { margin: 0; padding: 0; }
+            QTabBar { spacing: 0; padding: 0; }
+            QTabBar::tab { padding: 4px 8px; }
+        """)
 
         new_tab_btn = QPushButton("+")
-        new_tab_btn.setFixedWidth(30)
+        new_tab_btn.setFixedSize(36, 24)
+        new_tab_btn.setStyleSheet("font-size: 18px; font-weight: bold; padding: 0; margin: 0;")
         new_tab_btn.clicked.connect(self._on_new_tab)
-        self.tabs.setCornerWidget(new_tab_btn, Qt.TopRightCorner)
+
+        corner_widget = QWidget()
+        corner_layout = QHBoxLayout(corner_widget)
+        corner_layout.setContentsMargins(0, 2, 8, 2)
+        corner_layout.addWidget(new_tab_btn)
+        self.tabs.setCornerWidget(corner_widget, Qt.TopRightCorner)
 
         self._create_login_page()
 
         self.stack = QStackedWidget()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         layout.addWidget(self.stack)
         self.stack.addWidget(self.login_page)
         self.stack.addWidget(self.tabs)
@@ -479,16 +510,6 @@ class MainWindow(QMainWindow):
         new_vault_action = QAction("New Vault", self)
         new_vault_action.triggered.connect(self._on_new_vault)
         file_menu.addAction(new_vault_action)
-
-        open_vault_action = QAction("Open Vault", self)
-        open_vault_action.triggered.connect(self._on_open_vault)
-        file_menu.addAction(open_vault_action)
-
-        file_menu.addSeparator()
-
-        lock_action = QAction("Lock Vault", self)
-        lock_action.triggered.connect(self._on_lock)
-        file_menu.addAction(lock_action)
 
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
@@ -581,15 +602,19 @@ class MainWindow(QMainWindow):
         toolbar = QHBoxLayout()
         toolbar.setSpacing(5)
 
-        add_entry_btn = QPushButton("Add Entry")
-        add_entry_btn.clicked.connect(lambda: self._on_add_entry_vault(vault))
-        toolbar.addWidget(add_entry_btn)
-
         add_group_btn = QPushButton("Add Group")
         add_group_btn.clicked.connect(lambda: self._on_add_group_vault(vault))
         toolbar.addWidget(add_group_btn)
 
-        toolbar.addSpacing(10)
+        delete_group_btn = QPushButton("Delete Group")
+        delete_group_btn.clicked.connect(lambda: self._on_delete_group_vault(vault))
+        toolbar.addWidget(delete_group_btn)
+
+        toolbar.addStretch()
+
+        add_entry_btn = QPushButton("Add Entry")
+        add_entry_btn.clicked.connect(lambda: self._on_add_entry_vault(vault))
+        toolbar.addWidget(add_entry_btn)
 
         edit_btn = QPushButton("Edit")
         edit_btn.clicked.connect(lambda: self._on_edit_entry_vault(vault))
@@ -598,16 +623,6 @@ class MainWindow(QMainWindow):
         delete_btn = QPushButton("Delete")
         delete_btn.clicked.connect(lambda: self._on_delete_entry_vault(vault))
         toolbar.addWidget(delete_btn)
-
-        toolbar.addSpacing(10)
-
-        search_input = QLineEdit()
-        search_input.setPlaceholderText("Search entries...")
-        search_input.textChanged.connect(lambda t: self._on_search_vault(vault, t))
-        search_input.setMinimumWidth(200)
-        toolbar.addWidget(search_input)
-
-        toolbar.addStretch()
 
         copy_username_btn = QPushButton("Copy Username")
         copy_username_btn.clicked.connect(lambda: self._on_copy_username_vault(vault))
@@ -622,6 +637,11 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(lock_btn)
 
         layout.addLayout(toolbar)
+
+        search_input = QLineEdit()
+        search_input.setPlaceholderText("Search entries...")
+        search_input.textChanged.connect(lambda t: self._on_search_vault(vault, t))
+        layout.addWidget(search_input)
 
         splitter = QSplitter(Qt.Horizontal)
 
@@ -737,6 +757,28 @@ class MainWindow(QMainWindow):
             if entry_uuid:
                 vault.delete_entry(uuid.UUID(entry_uuid))
                 self._refresh_vault_view(vault, current_widget)
+
+    def _on_delete_group_vault(self, vault):
+        current_widget = self.current_vault_widget
+        if not current_widget or not hasattr(current_widget, 'groups_tree'):
+            return
+        selected = current_widget.groups_tree.currentItem()
+        if not selected:
+            return
+
+        group_uuid = selected.data(0, Qt.UserRole)
+        if not group_uuid:
+            return
+
+        reply = QMessageBox.question(
+            self, "Delete Group",
+            "Are you sure you want to delete this group?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            vault.delete_group(uuid.UUID(group_uuid))
+            self._refresh_vault_view(vault, current_widget)
 
     def _on_search_vault(self, vault, text):
         self._refresh_vault_view(vault, self.current_vault_widget, text if text else None)
@@ -967,7 +1009,9 @@ class MainWindow(QMainWindow):
             self.vault = vault
             self.stack.setCurrentIndex(1)
             self.status_label.setText("")
-            self.setWindowTitle(f"SecPass - {vault.name}")
+            groups_count = len(vault.list_groups())
+            entries_count = len(vault.list_entries())
+            self.setWindowTitle(f"SecPass - {vault.name} | groups: {groups_count} | entries: {entries_count}")
             self.password_input.clear()
             self.vault_path_input.clear()
             self.keyfile_input.clear()
