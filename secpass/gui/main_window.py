@@ -443,7 +443,7 @@ class EntryDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PWDuck - Password Manager")
+        self.setWindowTitle("SecPass - Password Manager")
         self.resize(1000, 650)
         self.vault = None
         self._init_ui()
@@ -494,6 +494,20 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
+        help_menu = menubar.addMenu("Help")
+
+        about_action = QAction("About", self)
+        about_action.triggered.connect(self._on_about)
+        help_menu.addAction(about_action)
+
+    def _on_about(self):
+        QMessageBox.about(self, "About SecPass",
+            "<b>SecPass</b><br><br>"
+            "Version: 1.0.0<br>"
+            "Developer: SecPass Team<br>"
+            "Contact: support@secpass.app<br><br>"
+            "Secure Password Manager")
+
     def _create_login_page(self):
         self.login_page = QWidget()
         self.login_page.setObjectName("login_page")
@@ -501,7 +515,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(15)
         layout.setContentsMargins(100, 80, 100, 80)
 
-        title = QLabel("PWDuck")
+        title = QLabel("SecPass")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("font-size: 32px; font-weight: bold;")
         layout.addWidget(title)
@@ -789,7 +803,7 @@ class MainWindow(QMainWindow):
             self.tabs.removeTab(index)
         if self.tabs.count() == 0:
             self.stack.setCurrentIndex(0)
-            self.setWindowTitle("PWDuck - Password Manager")
+            self.setWindowTitle("SecPass - Password Manager")
 
     def _refresh_vault_view(self, vault, page, search_query=None):
         if not page or not hasattr(page, 'groups_tree'):
@@ -917,7 +931,7 @@ class MainWindow(QMainWindow):
             data = dialog.get_data()
             vault_path = data["path"]
 
-            from pwduck.vault import Vault
+            from secpass.vault import Vault
             vault = Vault(vault_path)
             vault.create(data["password"], data.get("keyfile"), data.get("name"))
 
@@ -933,7 +947,7 @@ class MainWindow(QMainWindow):
             self.password_input.setFocus()
 
     def _on_unlock(self):
-        from pwduck.vault import Vault
+        from secpass.vault import Vault
         vault_path = Path(self.vault_path_input.text())
 
         if not vault_path.exists() or not (vault_path / "masterkey").exists():
@@ -953,7 +967,7 @@ class MainWindow(QMainWindow):
             self.vault = vault
             self.stack.setCurrentIndex(1)
             self.status_label.setText("")
-            self.setWindowTitle(f"PWDuck - {vault.name}")
+            self.setWindowTitle(f"SecPass - {vault.name}")
             self.password_input.clear()
             self.vault_path_input.clear()
             self.keyfile_input.clear()
@@ -961,7 +975,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"Failed to unlock: {e}")
 
     def _on_create_vault(self):
-        from pwduck.vault import Vault
+        from secpass.vault import Vault
         vault_path = Path(self.vault_path_input.text())
         self.vault = Vault(vault_path)
 
@@ -987,7 +1001,7 @@ class MainWindow(QMainWindow):
             self.vault = None
             self.stack.setCurrentIndex(0)
             self.password_input.clear()
-            self.setWindowTitle("PWDuck - Password Manager")
+            self.setWindowTitle("SecPass - Password Manager")
 
     def _on_close_tab(self, index):
         widget = self.tabs.widget(index)
@@ -998,7 +1012,7 @@ class MainWindow(QMainWindow):
         self.tabs.removeTab(index)
         if self.tabs.count() == 0:
             self.stack.setCurrentIndex(0)
-            self.setWindowTitle("PWDuck - Password Manager")
+            self.setWindowTitle("SecPass - Password Manager")
 
     def _on_new_tab(self):
         self.stack.setCurrentIndex(0)

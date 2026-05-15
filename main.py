@@ -1,4 +1,4 @@
-from pwduck.gui.main_window import main
+from secpass.gui.main_window import main
 
 if __name__ == "__main__":
     main()

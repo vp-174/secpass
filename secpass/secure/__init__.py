@@ -47,10 +47,10 @@ class SecureString:
 
 
 def encrypt_master_key_protected(master_key: bytes, protection_key: bytes) -> bytes:
-    from pwduck.crypto import CipherSuite
+    from secpass.crypto import CipherSuite
     return CipherSuite.encrypt_chacha20(protection_key, master_key)
 
 
 def decrypt_master_key_protected(encrypted_key: bytes, protection_key: bytes) -> bytes:
-    from pwduck.crypto import CipherSuite
+    from secpass.crypto import CipherSuite
     return CipherSuite.decrypt_chacha20(protection_key, encrypted_key)

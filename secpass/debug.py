@@ -9,7 +9,7 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.FileHandler(LOG_DIR / "pwduck.log"),
+        logging.FileHandler(LOG_DIR / "secpass.log"),
         logging.StreamHandler(sys.stdout)
     ]
 )

@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
-from pwduck.vault import Vault
-from pwduck.crypto import CipherSuite
+from secpass.vault import Vault
+from secpass.crypto import CipherSuite
 
 
 class TestVault:

@@ -5,8 +5,8 @@ import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from pwduck.crypto import CipherSuite
-from pwduck.secure import SecureString
+from secpass.crypto import CipherSuite
+from secpass.secure import SecureString
 
 
 class Vault:

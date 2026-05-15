@@ -1,5 +1,5 @@
 import pytest
-from pwduck.crypto import CipherSuite
+from secpass.crypto import CipherSuite
 
 
 class TestCipherSuite:

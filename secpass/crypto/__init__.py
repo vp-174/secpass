@@ -3,7 +3,7 @@ import base64
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 from cryptography.hazmat.backends import default_backend
-from pwduck.debug import get_logger
+from secpass.debug import get_logger
 
 logger = get_logger("crypto")
 
