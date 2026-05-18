@@ -9,10 +9,57 @@ from PySide6.QtWidgets import (
     QDialogButtonBox, QFormLayout, QTreeWidget, QTreeWidgetItem, QScrollArea,
     QWidget as QWidgetBase, QGridLayout, QGroupBox, QCheckBox, QSlider,
     QSpinBox, QTextEdit, QFileDialog, QSplitter, QTabWidget, QSizePolicy,
-    QLayout
+    QLayout, QTreeView, QHeaderView, QStyledItemDelegate
 )
-from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QIcon, QAction
+from PySide6.QtCore import Qt, Signal, QSize, QRect
+from PySide6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem, QPainter, QPen, QColor
+
+
+class TreeLinesDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        
+        widget = option.widget
+        if not widget:
+            return
+        
+        model = widget.model()
+        if not model:
+            return
+        
+        item = model.itemFromIndex(index)
+        if not item:
+            return
+        
+        rect = option.rect
+        indent = widget.indentation()
+        row_height = rect.height()
+        
+        painter.save()
+        painter.setPen(QPen(QColor("#999"), 2))
+        
+        parent = item.parent()
+        if parent:
+            parent_rect = widget.visualRect(parent.index())
+            x = rect.left() - indent // 2
+            y_mid = rect.top() + row_height // 2
+            y_top = parent_rect.bottom()
+            painter.drawLine(x, y_top, x, y_mid)
+            painter.drawLine(x, y_mid, rect.left(), y_mid)
+        elif item.row() > 0:
+            prev_item = model.item(item.row() - 1)
+            if prev_item:
+                prev_rect = widget.visualRect(prev_item.index())
+                x = rect.left() - indent // 2
+                y_top = prev_rect.bottom()
+                y_mid = rect.top() + row_height // 2
+                painter.drawLine(x, y_top, x, y_mid)
+        
+        painter.restore()
+
+
+from PySide6.QtWidgets import QStyledItemDelegate
+from PySide6.QtGui import QColor
 
 
 def calculate_entropy(password: str) -> float:
@@ -645,15 +692,58 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Horizontal)
 
-        groups_tree = QTreeWidget()
-        groups_tree.setHeaderLabel("Groups")
-        groups_tree.itemClicked.connect(lambda item, col: self._on_group_clicked_vault(vault, item, col, search_input.text()))
-        groups_tree.itemDoubleClicked.connect(lambda item, col: self._on_group_double_click_vault(vault, item, col))
+        groups_tree = QTreeView()
+        groups_tree.setItemDelegate(TreeLinesDelegate(groups_tree))
+        groups_model = QStandardItemModel()
+        groups_tree.setModel(groups_model)
+        groups_tree.setHeaderHidden(True)
+        groups_tree.setRootIsDecorated(True)
+        groups_tree.setItemsExpandable(True)
+        groups_tree.setIndentation(20)
+        groups_tree.setProperty("showTreeLines", True)
+        groups_tree.setStyleSheet("""
+            QTreeView {
+                border: 1px solid #ccc;
+                background: #fafafa;
+                show-decoration-selected: 1;
+            }
+            QTreeView::item {
+                padding: 4px;
+                min-height: 22px;
+            }
+            QTreeView::item:hover {
+                background: #e5f3ff;
+            }
+            QTreeView::item:selected {
+                background: #0078d7;
+                color: white;
+            }
+        """)
+        groups_tree.expanded.connect(lambda idx: groups_tree.setExpanded(idx, True))
+        groups_tree.clicked.connect(lambda idx: self._on_group_clicked_vault(vault, groups_model.itemFromIndex(idx), 0, search_input.text()))
+        groups_tree.doubleClicked.connect(lambda idx: self._on_group_double_click_vault(vault, groups_model.itemFromIndex(idx), 0))
         splitter.addWidget(groups_tree)
 
         entries_list = QTreeWidget()
-        entries_list.setHeaderLabels(["Name"])
+        entries_list.setHeaderLabels(["List entries"])
         entries_list.setColumnCount(1)
+        entries_list.setStyleSheet("""
+            QTreeWidget {
+                border: 1px solid #ccc;
+                background: #fff;
+            }
+            QTreeWidget::item {
+                padding: 6px 8px 6px 0px;
+                border-bottom: 1px solid #eee;
+            }
+            QTreeWidget::item:hover {
+                background: #e5f3ff;
+            }
+            QTreeWidget::item:selected {
+                background: #0078d7;
+                color: white;
+            }
+        """)
         entries_list.itemDoubleClicked.connect(lambda item, col: self._on_entry_double_click_vault(vault, item, col))
         splitter.addWidget(entries_list)
 
@@ -669,11 +759,14 @@ class MainWindow(QMainWindow):
         return page
 
     def _on_add_entry_vault(self, vault):
-        selected = None
+        group_uuid = None
         current_widget = self.current_vault_widget
         if current_widget and hasattr(current_widget, 'groups_tree'):
-            selected = current_widget.groups_tree.currentItem()
-        group_uuid = selected.data(0, Qt.UserRole) if selected else None
+            current_idx = current_widget.groups_tree.currentIndex()
+            if current_idx.isValid():
+                selected = current_widget.groups_tree.model().itemFromIndex(current_idx)
+                if selected:
+                    group_uuid = selected.data(Qt.UserRole)
 
         dialog = EntryDialog(parent=self)
         if dialog.exec():
@@ -762,11 +855,14 @@ class MainWindow(QMainWindow):
         current_widget = self.current_vault_widget
         if not current_widget or not hasattr(current_widget, 'groups_tree'):
             return
-        selected = current_widget.groups_tree.currentItem()
+        selected_indexes = current_widget.groups_tree.selectedIndexes()
+        if not selected_indexes:
+            return
+        selected = current_widget.groups_tree.model().itemFromIndex(selected_indexes[0])
         if not selected:
             return
 
-        group_uuid = selected.data(0, Qt.UserRole)
+        group_uuid = selected.data(Qt.UserRole)
         if not group_uuid:
             return
 
@@ -784,11 +880,11 @@ class MainWindow(QMainWindow):
         self._refresh_vault_view(vault, self.current_vault_widget, text if text else None)
 
     def _on_group_clicked_vault(self, vault, item, column, search_text):
-        group_uuid = item.data(0, Qt.UserRole)
+        group_uuid = item.data(Qt.UserRole)
         self._refresh_entries_vault(vault, self.current_vault_widget, group_uuid, search_text if search_text else None)
 
     def _on_group_double_click_vault(self, vault, item, column):
-        group_uuid = item.data(0, Qt.UserRole)
+        group_uuid = item.data(Qt.UserRole)
         if not group_uuid:
             return
         group = vault.get_group(uuid.UUID(group_uuid))
@@ -851,16 +947,19 @@ class MainWindow(QMainWindow):
         if not page or not hasattr(page, 'groups_tree'):
             return
 
-        page.groups_tree.clear()
-        root_item = QTreeWidgetItem(["All Entries"])
-        root_item.setData(0, Qt.UserRole, None)
-        page.groups_tree.addTopLevelItem(root_item)
+        groups_model = page.groups_tree.model()
+        groups_model.clear()
+
+        root_item = QStandardItem("All Entries")
+        root_item.setData(None, Qt.UserRole)
+        groups_model.appendRow(root_item)
 
         for group in vault.list_groups():
-            item = QTreeWidgetItem([group["name"]])
-            item.setData(0, Qt.UserRole, group["uuid"])
-            page.groups_tree.addTopLevelItem(item)
-        page.groups_tree.expandAll()
+            item = QStandardItem(group["name"])
+            item.setData(group["uuid"], Qt.UserRole)
+            root_item.appendRow(item)
+
+        page.groups_tree.setExpanded(root_item.index(), True)
 
         self._refresh_entries_vault(vault, page, None, search_query)
 
@@ -948,7 +1047,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.groups_tree)
 
         self.entries_list = QTreeWidget()
-        self.entries_list.setHeaderLabels(["Name"])
+        self.entries_list.setHeaderLabels(["List entries"])
         self.entries_list.setColumnCount(1)
         self.entries_list.itemDoubleClicked.connect(self._on_entry_double_click)
         splitter.addWidget(self.entries_list)
