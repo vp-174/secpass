@@ -1,3 +1,13 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Pytest cache
+.pytest_cache/
+
 /vault*
 /.idea
 /logs
+/reference_gui_from_rust.zip
