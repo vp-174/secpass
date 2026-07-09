@@ -261,3 +261,54 @@ class TestVault:
 
         group = vault.get_group(group_uuid)
         assert group is None
+
+
+class TestDuplicateNames:
+    @pytest.fixture
+    def vault(self, temp_dir, test_password):
+        from secpass.vault import Vault
+        vault_path = temp_dir / "dup_vault"
+        vault = Vault(vault_path)
+        vault.create(test_password, name="test_vault")
+        vault.unlock(test_password)
+        return vault
+
+    def test_create_duplicate_entry_raises(self, vault):
+        vault.create_entry("Login")
+        with pytest.raises(ValueError, match="already exists"):
+            vault.create_entry("Login")
+
+    def test_create_duplicate_group_raises(self, vault):
+        vault.create_group("Email")
+        with pytest.raises(ValueError, match="already exists"):
+            vault.create_group("Email")
+
+    def test_create_different_names_allowed(self, vault):
+        uuid1 = vault.create_entry("Entry1")
+        uuid2 = vault.create_entry("Entry2")
+        assert uuid1 != uuid2
+        assert len(vault.list_entries()) == 2
+
+    def test_update_entry_same_name_allowed(self, vault):
+        entry_uuid = vault.create_entry("MyEntry")
+        vault.update_entry_head(entry_uuid, "MyEntry", "")
+        head = vault.get_entry_head(entry_uuid)
+        assert head["name"] == "MyEntry"
+
+    def test_update_entry_to_existing_name_raises(self, vault):
+        vault.create_entry("Existing")
+        entry_uuid = vault.create_entry("Other")
+        with pytest.raises(ValueError, match="already exists"):
+            vault.update_entry_head(entry_uuid, "Existing", "")
+
+    def test_update_group_same_name_allowed(self, vault):
+        group_uuid = vault.create_group("MyGroup")
+        vault.update_group(group_uuid, "MyGroup")
+        group = vault.get_group(group_uuid)
+        assert group["name"] == "MyGroup"
+
+    def test_update_group_to_existing_name_raises(self, vault):
+        vault.create_group("ExistingGroup")
+        group_uuid = vault.create_group("OtherGroup")
+        with pytest.raises(ValueError, match="already exists"):
+            vault.update_group(group_uuid, "ExistingGroup")

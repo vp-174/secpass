@@ -2,31 +2,31 @@ import sys
 import uuid
 import math
 import re
+import random
 from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
-    QPushButton, QLabel, QListWidget, QStackedWidget, QMessageBox, QDialog,
-    QDialogButtonBox, QFormLayout, QTreeWidget, QTreeWidgetItem, QScrollArea,
-    QWidget as QWidgetBase, QGridLayout, QGroupBox, QCheckBox, QSlider,
-    QSpinBox, QTextEdit, QFileDialog, QSplitter, QTabWidget, QSizePolicy,
-    QLayout, QTreeView, QHeaderView, QStyledItemDelegate
+    QPushButton, QLabel, QStackedWidget, QMessageBox, QDialog,
+    QDialogButtonBox, QFormLayout, QTreeWidget, QTreeWidgetItem,
+    QGroupBox, QCheckBox, QSpinBox, QTextEdit, QFileDialog, QSplitter,
+    QTabWidget, QSizePolicy, QTreeView, QStyledItemDelegate, QLayout, QGridLayout
 )
-from PySide6.QtCore import Qt, Signal, QSize, QRect
-from PySide6.QtGui import QIcon, QAction, QStandardItemModel, QStandardItem, QPainter, QPen, QColor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QStandardItemModel, QStandardItem, QPainter, QPen, QColor
 
 
 class TreeLinesDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         super().paint(painter, option, index)
-        
+
         widget = option.widget
         if not widget:
             return
-        
+
         model = widget.model()
         if not model:
             return
-        
+
         item = model.itemFromIndex(index)
         if not item:
             return
@@ -56,10 +56,6 @@ class TreeLinesDelegate(QStyledItemDelegate):
                 painter.drawLine(x, y_top, x, y_mid)
         
         painter.restore()
-
-
-from PySide6.QtWidgets import QStyledItemDelegate
-from PySide6.QtGui import QColor
 
 
 def calculate_entropy(password: str) -> float:
@@ -125,7 +121,6 @@ class PasswordStrengthBar(QWidget):
         self.update()
 
     def paintEvent(self, event):
-        from PySide6.QtGui import QPainter, QColor
         painter = QPainter(self)
         w = self.width()
         h = self.height()
@@ -343,7 +338,6 @@ class PasswordGeneratorDialog(QDialog):
         layout.addWidget(buttons)
 
     def _generate(self):
-        import random
         chars = ""
         if self.use_uppercase.isChecked():
             chars += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -375,7 +369,8 @@ class EntryDialog(QDialog):
     def __init__(self, entry_data=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Entry" if not entry_data else "Edit Entry")
-        self.setMinimumSize(500, 0)
+        self.setMinimumSize(640, 0)
+        self.resize(640, 240)
         self.entry_data = entry_data or {}
         self._init_ui()
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -396,8 +391,8 @@ class EntryDialog(QDialog):
         self.username_input = QLineEdit(self.entry_data.get("username", ""))
         username_layout.addWidget(self.username_input)
 
-        self.copy_username_btn = QPushButton()
-        self.copy_username_btn.setIcon(QIcon.fromTheme("edit-copy"))
+        self.copy_username_btn = QPushButton("📋")
+        self.copy_username_btn.setFixedWidth(35)
         self.copy_username_btn.setToolTip("Copy username")
         self.copy_username_btn.clicked.connect(self._copy_username)
         username_layout.addWidget(self.copy_username_btn)
@@ -409,21 +404,21 @@ class EntryDialog(QDialog):
         self.password_input.textChanged.connect(self._on_password_changed)
         password_layout.addWidget(self.password_input)
 
-        self.show_password_btn = QPushButton()
-        self.show_password_btn.setIcon(QIcon.fromTheme("accessories-dictionary"))
+        self.show_password_btn = QPushButton("👁")
+        self.show_password_btn.setFixedWidth(35)
         self.show_password_btn.setCheckable(True)
         self.show_password_btn.setToolTip("Show/Hide password")
         self.show_password_btn.toggled.connect(self._toggle_password)
         password_layout.addWidget(self.show_password_btn)
 
-        self.copy_password_btn = QPushButton()
-        self.copy_password_btn.setIcon(QIcon.fromTheme("edit-copy"))
+        self.copy_password_btn = QPushButton("📋")
+        self.copy_password_btn.setFixedWidth(35)
         self.copy_password_btn.setToolTip("Copy password")
         self.copy_password_btn.clicked.connect(self._copy_password)
         password_layout.addWidget(self.copy_password_btn)
 
-        self.gen_password_btn = QPushButton()
-        self.gen_password_btn.setIcon(QIcon.fromTheme("accessories-calculator"))
+        self.gen_password_btn = QPushButton("🎲")
+        self.gen_password_btn.setFixedWidth(35)
         self.gen_password_btn.setToolTip("Generate password")
         self.gen_password_btn.clicked.connect(self._generate_password)
         password_layout.addWidget(self.gen_password_btn)
@@ -468,6 +463,26 @@ class EntryDialog(QDialog):
                     f"Password entropy is only {int(entropy)} bits. Minimum required is 80 bits for security."
                 )
                 return
+
+        url = self.url_input.text()
+        if url:
+            if not url.startswith(("http://", "https://", "ftp://", "file://")):
+                QMessageBox.warning(
+                    self, "Invalid URL",
+                    "URL must start with http://, https://, ftp:// or file://"
+                )
+                return
+
+        email = self.email_input.text()
+        if email:
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, email):
+                QMessageBox.warning(
+                    self, "Invalid Email",
+                    "Please enter a valid email address (e.g., user@example.com)"
+                )
+                return
+
         self.accept()
 
     def _on_password_changed(self, text):
@@ -479,7 +494,7 @@ class EntryDialog(QDialog):
 
     def _toggle_password(self, checked):
         self.password_input.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
-        self.show_password_btn.setIcon(QIcon.fromTheme("view-hidden" if checked else "view可见"))
+        self.show_password_btn.setText("🔒" if checked else "👁")
 
     def _copy_username(self):
         QApplication.clipboard().setText(self.username_input.text())
@@ -506,7 +521,7 @@ class EntryDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SecPass - Password Manager")
+        self.setWindowTitle("SecPass")
         self.resize(1000, 650)
         self.vault = None
         self._init_ui()
@@ -517,11 +532,11 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
-        self.vaults = {}
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
         self.tabs.setDocumentMode(False)
         self.tabs.tabCloseRequested.connect(self._on_close_tab)
+        self.tabs.currentChanged.connect(self._update_window_title)
         self.tabs.setStyleSheet("""
             QTabWidget::pane { border: 0; }
             QTabBar::close-button { margin: 0; padding: 0; }
@@ -572,9 +587,10 @@ class MainWindow(QMainWindow):
         QMessageBox.about(self, "About SecPass",
             "<b>SecPass</b><br><br>"
             "Version: 1.0.0<br>"
-            "Developer: SecPass Team<br>"
-            "Contact: support@secpass.app<br><br>"
-            "Secure Password Manager")
+            "Developer: Vladislav Panov<br>"
+            "Contact: support@secpass.app<br>"
+            "<a href='https://fr-space.ru'>https://fr-space.ru</a>"
+            )
 
     def _create_login_page(self):
         self.login_page = QWidget()
@@ -771,9 +787,12 @@ class MainWindow(QMainWindow):
         dialog = EntryDialog(parent=self)
         if dialog.exec():
             data = dialog.get_data()
-            entry_uuid = vault.create_entry(data["name"], data["url"], group_uuid)
-            vault.set_entry_body(entry_uuid, data["username"], data["password"], data.get("email", ""), data.get("notes", ""))
-            self._refresh_vault_view(vault, self.current_vault_widget)
+            try:
+                entry_uuid = vault.create_entry(data["name"], data["url"], group_uuid)
+                vault.set_entry_body(entry_uuid, data["username"], data["password"], data.get("email", ""), data.get("notes", ""))
+                self._refresh_vault_view(vault, self.current_vault_widget)
+            except ValueError as e:
+                QMessageBox.warning(self, "Duplicate Entry", str(e))
 
     def _on_add_group_vault(self, vault):
         dialog = QDialog(self)
@@ -790,8 +809,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(buttons)
 
         if dialog.exec() and name_input.text():
-            vault.create_group(name_input.text())
-            self._refresh_vault_view(vault, self.current_vault_widget)
+            try:
+                vault.create_group(name_input.text())
+                self._refresh_vault_view(vault, self.current_vault_widget)
+            except ValueError as e:
+                QMessageBox.warning(self, "Duplicate Group", str(e))
 
     def _on_edit_entry_vault(self, vault):
         current_widget = self.current_vault_widget
@@ -827,9 +849,12 @@ class MainWindow(QMainWindow):
         dialog = EntryDialog(entry_data, self)
         if dialog.exec():
             data = dialog.get_data()
-            vault.update_entry_head(entry_uuid, data["name"], data["url"])
-            vault.set_entry_body(entry_uuid, data["username"], data["password"], data.get("email", ""), data.get("notes", ""))
-            self._refresh_vault_view(vault, page)
+            try:
+                vault.update_entry_head(entry_uuid, data["name"], data["url"])
+                vault.set_entry_body(entry_uuid, data["username"], data["password"], data.get("email", ""), data.get("notes", ""))
+                self._refresh_vault_view(vault, page)
+            except ValueError as e:
+                QMessageBox.warning(self, "Duplicate Entry", str(e))
 
     def _on_delete_entry_vault(self, vault):
         current_widget = self.current_vault_widget
@@ -905,8 +930,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(buttons)
 
         if dialog.exec() and name_input.text():
-            vault.update_group(uuid.UUID(group_uuid), name_input.text())
-            self._refresh_vault_view(vault, self.current_vault_widget)
+            try:
+                vault.update_group(uuid.UUID(group_uuid), name_input.text())
+                self._refresh_vault_view(vault, self.current_vault_widget)
+            except ValueError as e:
+                QMessageBox.warning(self, "Duplicate Group", str(e))
 
     def _on_copy_username_vault(self, vault):
         current_widget = self.current_vault_widget
@@ -941,7 +969,6 @@ class MainWindow(QMainWindow):
             self.tabs.removeTab(index)
         if self.tabs.count() == 0:
             self.stack.setCurrentIndex(0)
-            self.setWindowTitle("SecPass - Password Manager")
 
     def _refresh_vault_view(self, vault, page, search_query=None):
         if not page or not hasattr(page, 'groups_tree'):
@@ -962,6 +989,8 @@ class MainWindow(QMainWindow):
         page.groups_tree.setExpanded(root_item.index(), True)
 
         self._refresh_entries_vault(vault, page, None, search_query)
+        if self.tabs.currentWidget() is page:
+            self._update_window_title()
 
     def _refresh_entries_vault(self, vault, page, group_uuid=None, search_query=None):
         if not page or not hasattr(page, 'entries_list'):
@@ -980,81 +1009,6 @@ class MainWindow(QMainWindow):
             item = QTreeWidgetItem([entry["name"]])
             item.setData(0, Qt.UserRole, entry["uuid"])
             page.entries_list.addTopLevelItem(item)
-
-    def _create_main_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(5)
-
-        self.add_entry_btn = QPushButton("Add Entry")
-        self.add_entry_btn.clicked.connect(self._on_add_entry)
-        toolbar.addWidget(self.add_entry_btn)
-
-        self.add_group_btn = QPushButton("Add Group")
-        self.add_group_btn.clicked.connect(self._on_add_group)
-        toolbar.addWidget(self.add_group_btn)
-
-        self.edit_group_btn = QPushButton("Edit Group")
-        self.edit_group_btn.clicked.connect(self._on_edit_group)
-        toolbar.addWidget(self.edit_group_btn)
-
-        self.delete_group_btn = QPushButton("Delete Group")
-        self.delete_group_btn.clicked.connect(self._on_delete_group)
-        toolbar.addWidget(self.delete_group_btn)
-
-        toolbar.addSpacing(10)
-
-        self.edit_btn = QPushButton("Edit")
-        self.edit_btn.clicked.connect(self._on_edit_entry)
-        toolbar.addWidget(self.edit_btn)
-
-        self.delete_btn = QPushButton("Delete")
-        self.delete_btn.clicked.connect(self._on_delete_entry)
-        toolbar.addWidget(self.delete_btn)
-
-        toolbar.addSpacing(10)
-
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search entries...")
-        self.search_input.textChanged.connect(self._on_search)
-        self.search_input.setMinimumWidth(200)
-        toolbar.addWidget(self.search_input)
-
-        toolbar.addStretch()
-
-        self.copy_username_btn = QPushButton("Copy Username")
-        self.copy_username_btn.clicked.connect(self._on_copy_username)
-        toolbar.addWidget(self.copy_username_btn)
-
-        self.copy_password_btn = QPushButton("Copy Password")
-        self.copy_password_btn.clicked.connect(self._on_copy_password)
-        toolbar.addWidget(self.copy_password_btn)
-
-        self.lock_btn = QPushButton("Lock")
-        self.lock_btn.clicked.connect(self._on_lock)
-        toolbar.addWidget(self.lock_btn)
-
-        layout.addLayout(toolbar)
-
-        splitter = QSplitter(Qt.Horizontal)
-
-        self.groups_tree = QTreeWidget()
-        self.groups_tree.setHeaderLabel("Groups")
-        self.groups_tree.itemClicked.connect(self._on_group_clicked)
-        self.groups_tree.itemDoubleClicked.connect(self._on_group_double_click)
-        splitter.addWidget(self.groups_tree)
-
-        self.entries_list = QTreeWidget()
-        self.entries_list.setHeaderLabels(["List entries"])
-        self.entries_list.setColumnCount(1)
-        self.entries_list.itemDoubleClicked.connect(self._on_entry_double_click)
-        splitter.addWidget(self.entries_list)
-
-        splitter.setSizes([250, 500])
-
-        layout.addWidget(splitter)
 
     def _on_browse_vault(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Vault Folder")
@@ -1081,12 +1035,6 @@ class MainWindow(QMainWindow):
             self.password_input.setFocus()
             QMessageBox.information(self, "Success", f"Vault created at: {vault_path}\nNow unlock it.")
 
-    def _on_open_vault(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Vault Folder")
-        if folder:
-            self.vault_path_input.setText(folder)
-            self.password_input.setFocus()
-
     def _on_unlock(self):
         from secpass.vault import Vault
         vault_path = Path(self.vault_path_input.text())
@@ -1102,49 +1050,18 @@ class MainWindow(QMainWindow):
             vault.unlock(self.password_input.text(), keyfile)
 
             page = self._create_vault_page(vault)
+            self.stack.setCurrentIndex(1)
             tab_index = self.tabs.addTab(page, vault.name)
             self.tabs.setCurrentIndex(tab_index)
+            self._update_window_title()
 
             self.vault = vault
-            self.stack.setCurrentIndex(1)
             self.status_label.setText("")
-            groups_count = len(vault.list_groups())
-            entries_count = len(vault.list_entries())
-            self.setWindowTitle(f"SecPass - {vault.name} | groups: {groups_count} | entries: {entries_count}")
             self.password_input.clear()
             self.vault_path_input.clear()
             self.keyfile_input.clear()
         except Exception as e:
             self.status_label.setText(f"Failed to unlock: {e}")
-
-    def _on_create_vault(self):
-        from secpass.vault import Vault
-        vault_path = Path(self.vault_path_input.text())
-        self.vault = Vault(vault_path)
-
-        if self.vault.exists():
-            self.status_label.setText("Vault already exists. Unlock it or choose another location.")
-            return
-
-        if not self.password_input.text():
-            self.status_label.setText("Please enter a password.")
-            return
-
-        try:
-            keyfile = Path(self.keyfile_input.text()) if self.keyfile_input.text() else None
-            self.vault.create(self.password_input.text(), keyfile)
-            self.status_label.setText("Vault created! Now unlock it.")
-            self.status_label.setStyleSheet("color: green;")
-        except Exception as e:
-            self.status_label.setText(f"Failed to create: {e}")
-
-    def _on_lock(self):
-        if self.vault:
-            self.vault.lock()
-            self.vault = None
-            self.stack.setCurrentIndex(0)
-            self.password_input.clear()
-            self.setWindowTitle("SecPass - Password Manager")
 
     def _on_close_tab(self, index):
         widget = self.tabs.widget(index)
@@ -1155,236 +1072,30 @@ class MainWindow(QMainWindow):
         self.tabs.removeTab(index)
         if self.tabs.count() == 0:
             self.stack.setCurrentIndex(0)
-            self.setWindowTitle("SecPass - Password Manager")
+            self.setWindowTitle("SecPass")
 
     def _on_new_tab(self):
         self.stack.setCurrentIndex(0)
         self.vault_path_input.setFocus()
+        self._update_window_title()
 
     @property
     def current_vault_widget(self):
         return self.tabs.currentWidget()
 
-    def _refresh_view(self):
-        self._refresh_groups()
-        self._refresh_entries()
-
-    def _refresh_groups(self, search_mode=False):
-        self.groups_tree.clear()
-
-        if not search_mode:
-            root_item = QTreeWidgetItem(["All Entries"])
-            root_item.setData(0, Qt.UserRole, None)
-            self.groups_tree.addTopLevelItem(root_item)
-
-        if self.vault:
-            for group in self.vault.list_groups():
-                item = QTreeWidgetItem([group["name"]])
-                item.setData(0, Qt.UserRole, group["uuid"])
-                self.groups_tree.addTopLevelItem(item)
-
-        self.groups_tree.expandAll()
-
-    def _refresh_entries(self, group_uuid=None, search_query=None):
-        self.entries_list.clear()
-
-        if not self.vault:
+    def _update_window_title(self):
+        if self.stack.currentIndex() == 0:
+            self.setWindowTitle("SecPass")
             return
-
-        for entry in self.vault.list_entries():
-            if group_uuid and entry.get("group") != group_uuid:
-                continue
-
-            if search_query:
-                name = entry.get("name", "").lower()
-                url = entry.get("url", "").lower()
-                if search_query.lower() not in name and search_query.lower() not in url:
-                    continue
-
-            item = QTreeWidgetItem([entry["name"]])
-            item.setData(0, Qt.UserRole, entry["uuid"])
-            self.entries_list.addTopLevelItem(item)
-
-    def _on_group_clicked(self, item, column):
-        group_uuid = item.data(0, Qt.UserRole)
-        search_query = self.search_input.text()
-        self._refresh_entries(group_uuid, search_query if search_query else None)
-
-    def _on_search(self, text):
-        if text:
-            self._refresh_groups(search_mode=True)
-            self._refresh_entries(search_query=text)
+        widget = self.tabs.currentWidget()
+        if widget and hasattr(widget, 'vault') and widget.vault and widget.vault.is_unlocked():
+            vault = widget.vault
+            groups_count = len(vault.list_groups())
+            entries_count = len(vault.list_entries())
+            self.setWindowTitle(f"SecPass :: {vault.name} | groups: {groups_count} | entries: {entries_count}")
         else:
-            self._refresh_groups()
-            self._refresh_entries()
+            self.setWindowTitle("SecPass")
 
-    def _on_add_entry(self):
-        if not self.vault:
-            return
-
-        selected = self.groups_tree.currentItem()
-        group_uuid = selected.data(0, Qt.UserRole) if selected else None
-
-        dialog = EntryDialog(parent=self)
-        if dialog.exec():
-            data = dialog.get_data()
-            entry_uuid = self.vault.create_entry(data["name"], data["url"], group_uuid)
-            self.vault.set_entry_body(entry_uuid, data["username"], data["password"])
-            self._refresh_view()
-
-    def _on_add_group(self):
-        if not self.vault:
-            return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("New Group")
-        layout = QVBoxLayout(dialog)
-
-        name_input = QLineEdit()
-        name_input.setPlaceholderText("Group Name")
-        layout.addWidget(name_input)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        if dialog.exec() and name_input.text():
-            self.vault.create_group(name_input.text())
-            self._refresh_groups()
-
-    def _on_edit_group(self):
-        selected = self.groups_tree.currentItem()
-        if not selected:
-            return
-
-        group_uuid = selected.data(0, Qt.UserRole)
-        if not group_uuid:
-            return
-
-        group = self.vault.get_group(uuid.UUID(group_uuid))
-        if not group:
-            return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Edit Group")
-        layout = QVBoxLayout(dialog)
-
-        name_input = QLineEdit(group["name"])
-        name_input.setPlaceholderText("Group Name")
-        layout.addWidget(name_input)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        if dialog.exec() and name_input.text():
-            self.vault.update_group(uuid.UUID(group_uuid), name_input.text())
-            self._refresh_groups()
-
-    def _on_delete_group(self):
-        selected = self.groups_tree.currentItem()
-        if not selected:
-            return
-
-        group_uuid = selected.data(0, Qt.UserRole)
-        if not group_uuid:
-            return
-
-        reply = QMessageBox.question(
-            self, "Delete Group",
-            "Are you sure you want to delete this group?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-
-        if reply == QMessageBox.Yes:
-            self.vault.delete_group(uuid.UUID(group_uuid))
-            self._refresh_groups()
-
-    def _on_group_double_click(self, item, column):
-        group_uuid = item.data(0, Qt.UserRole)
-        if group_uuid:
-            self._on_edit_group()
-
-    def _on_edit_entry(self):
-        self._edit_selected_entry()
-
-    def _on_entry_double_click(self, item, column):
-        self._edit_selected_entry()
-
-    def _edit_selected_entry(self):
-        selected = self.entries_list.currentItem()
-        if not selected:
-            return
-
-        entry_uuid_str = selected.data(0, Qt.UserRole)
-        if not entry_uuid_str:
-            return
-
-        entry_uuid = uuid.UUID(entry_uuid_str)
-        head = self.vault.get_entry_head(entry_uuid)
-        body = self.vault.get_entry_body(entry_uuid)
-
-        entry_data = {
-            "name": head.get("name", "") if head else "",
-            "url": head.get("url", "") if head else "",
-            "username": body.get("username", "") if body else "",
-            "password": body.get("password", "") if body else "",
-            "email": body.get("email", "") if body else "",
-            "notes": body.get("notes", "") if body else "",
-        }
-
-        dialog = EntryDialog(entry_data, self)
-        if dialog.exec():
-            data = dialog.get_data()
-            self.vault.update_entry_head(entry_uuid, data["name"], data["url"])
-            self.vault.set_entry_body(entry_uuid, data["username"], data["password"], data.get("email", ""), data.get("notes", ""))
-            self._refresh_view()
-
-    def _on_delete_entry(self):
-        selected = self.entries_list.currentItem()
-        if not selected:
-            return
-
-        reply = QMessageBox.question(
-            self, "Delete Entry",
-            "Are you sure you want to delete this entry?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-
-        if reply == QMessageBox.Yes:
-            entry_uuid = selected.data(0, Qt.UserRole)
-            if entry_uuid:
-                head_file = self.vault.entries_path / f"{self.vault._hash_uuid(uuid.UUID(entry_uuid))}.head"
-                body_file = self.vault.entries_path / f"{self.vault._hash_uuid(uuid.UUID(entry_uuid))}.body"
-                if head_file.exists():
-                    head_file.unlink()
-                if body_file.exists():
-                    body_file.unlink()
-                self._refresh_view()
-
-    def _on_copy_username(self):
-        selected = self.entries_list.currentItem()
-        if not selected:
-            return
-
-        entry_uuid = selected.data(0, Qt.UserRole)
-        if entry_uuid:
-            body = self.vault.get_entry_body(uuid.UUID(entry_uuid))
-            if body:
-                QApplication.clipboard().setText(body.get("username", ""))
-
-    def _on_copy_password(self):
-        selected = self.entries_list.currentItem()
-        if not selected:
-            return
-
-        entry_uuid = selected.data(0, Qt.UserRole)
-        if entry_uuid:
-            body = self.vault.get_entry_body(uuid.UUID(entry_uuid))
-            if body:
-                QApplication.clipboard().setText(body.get("password", ""))
 
 
 def main():
@@ -1393,7 +1104,3 @@ def main():
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
-
-
-if __name__ == "__main__":
-    main()
