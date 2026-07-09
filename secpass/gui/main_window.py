@@ -134,6 +134,12 @@ class PasswordStrengthBar(QWidget):
             painter.fillRect(i * bar_width + 1, 1, bar_width - 2, h - 2, QColor(color))
 
 
+def _generate_password_for(password_input, parent):
+    dialog = PasswordGeneratorDialog(parent)
+    if dialog.exec():
+        password_input.setText(dialog.get_password())
+
+
 class VaultCreationDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -159,10 +165,28 @@ class VaultCreationDialog(QDialog):
         path_layout.addWidget(path_btn)
         form.addRow("Location:", path_layout)
 
+        password_layout = QHBoxLayout()
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
         self.password_input.textChanged.connect(self._on_password_changed)
-        form.addRow("Password:", self.password_input)
+        password_layout.addWidget(self.password_input)
+        self.show_password_btn = QPushButton("👁")
+        self.show_password_btn.setFixedWidth(35)
+        self.show_password_btn.setCheckable(True)
+        self.show_password_btn.setToolTip("Show/Hide password")
+        self.show_password_btn.toggled.connect(self._toggle_password)
+        password_layout.addWidget(self.show_password_btn)
+        self.copy_password_btn = QPushButton("📋")
+        self.copy_password_btn.setFixedWidth(35)
+        self.copy_password_btn.setToolTip("Copy password")
+        self.copy_password_btn.clicked.connect(self._copy_password)
+        password_layout.addWidget(self.copy_password_btn)
+        self.gen_password_btn = QPushButton("🎲")
+        self.gen_password_btn.setFixedWidth(35)
+        self.gen_password_btn.setToolTip("Generate password")
+        self.gen_password_btn.clicked.connect(self._generate_password)
+        password_layout.addWidget(self.gen_password_btn)
+        form.addRow("Password:", password_layout)
 
         self.strength_bar = PasswordStrengthBar()
         form.addRow("", self.strength_bar)
@@ -224,6 +248,16 @@ class VaultCreationDialog(QDialog):
                 self.confirm_label.setStyleSheet("color: red;")
         else:
             self.confirm_label.setText("")
+
+    def _generate_password(self):
+        _generate_password_for(self.password_input, self)
+
+    def _toggle_password(self, checked):
+        self.password_input.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
+        self.show_password_btn.setText("🔒" if checked else "👁")
+
+    def _copy_password(self):
+        QApplication.clipboard().setText(self.password_input.text())
 
     def _on_keyfile_toggled(self):
         enabled = self.use_keyfile.isChecked()
@@ -431,6 +465,15 @@ class EntryDialog(QDialog):
         self.strength_label.setStyleSheet("font-size: 11px; color: #888;")
         form.addRow("", self.strength_label)
 
+        self.confirm_password = QLineEdit()
+        self.confirm_password.setPlaceholderText("Re-enter password to confirm changes")
+        self.confirm_password.setEchoMode(QLineEdit.Password)
+        self.confirm_password.textChanged.connect(self._on_confirm_changed)
+        form.addRow("Confirm:", self.confirm_password)
+
+        self.confirm_label = QLabel("")
+        form.addRow("", self.confirm_label)
+
         if self.entry_data.get("password"):
             self._on_password_changed(self.entry_data.get("password"))
 
@@ -454,15 +497,24 @@ class EntryDialog(QDialog):
         layout.addWidget(buttons)
 
     def _on_ok_clicked(self):
+        if not self.title_input.text():
+            QMessageBox.warning(self, "Error", "Please enter a title.")
+            return
         password = self.password_input.text()
-        if password:
-            entropy = calculate_entropy(password)
-            if entropy < 80:
-                QMessageBox.warning(
-                    self, "Weak Password",
-                    f"Password entropy is only {int(entropy)} bits. Minimum required is 80 bits for security."
-                )
-                return
+        if not password:
+            QMessageBox.warning(self, "Error", "Please enter a password.")
+            return
+        entropy = calculate_entropy(password)
+        if entropy < 80:
+            QMessageBox.warning(
+                self, "Weak Password",
+                f"Password entropy is only {int(entropy)} bits. Minimum required is 80 bits for security."
+            )
+            return
+
+        if self.password_input.text() != self.confirm_password.text():
+            QMessageBox.warning(self, "Error", "Passwords do not match.")
+            return
 
         url = self.url_input.text()
         if url:
@@ -483,6 +535,16 @@ class EntryDialog(QDialog):
                 )
                 return
 
+        if self.entry_data:
+            reply = QMessageBox.question(
+                self, "Confirm Save",
+                "Are you sure you want to save the changes to this entry?",
+                QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel
+            )
+            if reply != QMessageBox.Yes:
+                self.reject()
+                return
+
         self.accept()
 
     def _on_password_changed(self, text):
@@ -496,6 +558,17 @@ class EntryDialog(QDialog):
         self.password_input.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
         self.show_password_btn.setText("🔒" if checked else "👁")
 
+    def _on_confirm_changed(self, text):
+        if self.password_input.text() and self.confirm_password.text():
+            if self.password_input.text() == self.confirm_password.text():
+                self.confirm_label.setText("✓ Passwords match")
+                self.confirm_label.setStyleSheet("color: green;")
+            else:
+                self.confirm_label.setText("✗ Passwords do not match")
+                self.confirm_label.setStyleSheet("color: red;")
+        else:
+            self.confirm_label.setText("")
+
     def _copy_username(self):
         QApplication.clipboard().setText(self.username_input.text())
 
@@ -503,9 +576,7 @@ class EntryDialog(QDialog):
         QApplication.clipboard().setText(self.password_input.text())
 
     def _generate_password(self):
-        dialog = PasswordGeneratorDialog(self)
-        if dialog.exec():
-            self.password_input.setText(dialog.get_password())
+        _generate_password_for(self.password_input, self)
 
     def get_data(self):
         return {
@@ -616,7 +687,7 @@ class MainWindow(QMainWindow):
 
         self.vault_path_input = QLineEdit()
         self.vault_path_input.setObjectName("vault_path")
-        self.vault_path_input.setPlaceholderText("Choose vault folder...")
+        self.vault_path_input.setPlaceholderText("Choose vault...")
         path_layout = QHBoxLayout()
         path_layout.addWidget(self.vault_path_input)
         browse_btn = QPushButton("Browse...")
@@ -627,16 +698,24 @@ class MainWindow(QMainWindow):
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
         self.password_input.returnPressed.connect(self._on_unlock)
-        form.addRow("Master Password:", self.password_input)
+        self.password_input.setPlaceholderText("Write your strong password...")
+        password_row = QHBoxLayout()
+        password_row.addWidget(self.password_input, 1)
+        self.use_keyfile_cb = QCheckBox("Use key file")
+        self.use_keyfile_cb.toggled.connect(self._on_keyfile_toggled)
+        password_row.addWidget(self.use_keyfile_cb)
+        form.addRow("Password:", password_row)
 
         self.keyfile_input = QLineEdit()
-        self.keyfile_input.setPlaceholderText("Optional key file")
+        self.keyfile_input.setPlaceholderText("Key file path...")
+        self.keyfile_input.setEnabled(False)
         keyfile_layout = QHBoxLayout()
         keyfile_layout.addWidget(self.keyfile_input)
-        keyfile_btn = QPushButton("Browse...")
-        keyfile_btn.clicked.connect(self._on_browse_keyfile)
-        keyfile_layout.addWidget(keyfile_btn)
-        form.addRow("Key File:", keyfile_layout)
+        self.keyfile_btn = QPushButton("Browse...")
+        self.keyfile_btn.setEnabled(False)
+        self.keyfile_btn.clicked.connect(self._on_browse_keyfile)
+        keyfile_layout.addWidget(self.keyfile_btn)
+        form.addRow("", keyfile_layout)
 
         layout.addLayout(form)
 
@@ -1014,6 +1093,10 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Select Vault Folder")
         if folder:
             self.vault_path_input.setText(folder)
+
+    def _on_keyfile_toggled(self, checked):
+        self.keyfile_input.setEnabled(checked)
+        self.keyfile_btn.setEnabled(checked)
 
     def _on_browse_keyfile(self):
         file, _ = QFileDialog.getOpenFileName(self, "Select Key File", "", "All Files (*)")
