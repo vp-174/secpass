@@ -3,16 +3,18 @@ import uuid
 import math
 import re
 import random
+import json
 from pathlib import Path
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
     QPushButton, QLabel, QStackedWidget, QMessageBox, QDialog,
     QDialogButtonBox, QFormLayout, QTreeWidget, QTreeWidgetItem,
     QGroupBox, QCheckBox, QSpinBox, QTextEdit, QFileDialog, QSplitter,
-    QTabWidget, QSizePolicy, QTreeView, QStyledItemDelegate, QLayout, QGridLayout
+    QTabWidget, QSizePolicy, QTreeView, QStyledItemDelegate, QLayout,
+    QGridLayout, QMenu, QAbstractItemView
 )
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QStandardItemModel, QStandardItem, QPainter, QPen, QColor
+from PySide6.QtCore import Qt, QMimeData, QModelIndex, QSize
+from PySide6.QtGui import QAction, QStandardItemModel, QStandardItem, QPainter, QPen, QColor, QIcon
 
 
 class TreeLinesDelegate(QStyledItemDelegate):
@@ -134,6 +136,61 @@ class PasswordStrengthBar(QWidget):
             painter.fillRect(i * bar_width + 1, 1, bar_width - 2, h - 2, QColor(color))
 
 
+class EntriesDragTreeWidget(QTreeWidget):
+    def mimeData(self, items):
+        mime_data = QMimeData()
+        uuids = [item.data(0, Qt.UserRole) for item in items if item.data(0, Qt.UserRole)]
+        mime_data.setData("application/x-secpass-entry", json.dumps(uuids).encode())
+        return mime_data
+
+
+class GroupsDropTreeView(QTreeView):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._drop_callback = None
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
+
+    def set_drop_callback(self, callback):
+        self._drop_callback = callback
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat("application/x-secpass-entry"):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat("application/x-secpass-entry"):
+            pos = event.position().toPoint()
+            index = self.indexAt(pos)
+            self.setCurrentIndex(index if index.isValid() else QModelIndex())
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dragLeaveEvent(self, event):
+        self.setCurrentIndex(QModelIndex())
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        if event.mimeData().hasFormat("application/x-secpass-entry"):
+            if self._drop_callback:
+                data = bytes(event.mimeData().data("application/x-secpass-entry")).decode()
+                uuids = json.loads(data)
+                pos = event.position().toPoint()
+                index = self.indexAt(pos)
+                group_uuid = None
+                if index.isValid():
+                    item = self.model().itemFromIndex(index)
+                    group_uuid = item.data(Qt.UserRole)
+                self._drop_callback(uuids, group_uuid)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
+
+
 def _generate_password_for(password_input, parent):
     dialog = PasswordGeneratorDialog(parent)
     if dialog.exec():
@@ -189,9 +246,11 @@ class VaultCreationDialog(QDialog):
         form.addRow("Password:", password_layout)
 
         self.strength_bar = PasswordStrengthBar()
+        self.strength_bar.set_entropy(0.0)
         form.addRow("", self.strength_bar)
 
         self.strength_label = QLabel("")
+        self.strength_label.setText(f"{get_strength_level(0.0)[1]} - {int(0.0)} bits entropy")
         self.strength_label.setStyleSheet("font-size: 11px; color: #888;")
         form.addRow("", self.strength_label)
 
@@ -402,7 +461,8 @@ class PasswordGeneratorDialog(QDialog):
 class EntryDialog(QDialog):
     def __init__(self, entry_data=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Entry" if not entry_data else "Edit Entry")
+        name = entry_data.get("name", "") if entry_data else ""
+        self.setWindowTitle(f"Edit Entry ({name})" if entry_data else "Entry")
         self.setMinimumSize(640, 0)
         self.resize(640, 240)
         self.entry_data = entry_data or {}
@@ -459,9 +519,11 @@ class EntryDialog(QDialog):
         form.addRow("Password:", password_layout)
 
         self.strength_bar = PasswordStrengthBar()
+        self.strength_bar.set_entropy(0.0)
         form.addRow("Strength:", self.strength_bar)
 
         self.strength_label = QLabel("")
+        self.strength_label.setText(f"{get_strength_level(0.0)[1]} - {int(0.0)} bits entropy")
         self.strength_label.setStyleSheet("font-size: 11px; color: #888;")
         form.addRow("", self.strength_label)
 
@@ -592,6 +654,8 @@ class EntryDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        icon = QIcon(str(Path(__file__).parent.parent.parent / "secpass.ico"))
+        self.setWindowIcon(icon)
         self.setWindowTitle("SecPass")
         self.resize(1000, 650)
         self.vault = None
@@ -758,10 +822,6 @@ class MainWindow(QMainWindow):
         add_entry_btn.clicked.connect(lambda: self._on_add_entry_vault(vault))
         toolbar.addWidget(add_entry_btn)
 
-        edit_btn = QPushButton("Edit")
-        edit_btn.clicked.connect(lambda: self._on_edit_entry_vault(vault))
-        toolbar.addWidget(edit_btn)
-
         delete_btn = QPushButton("Delete")
         delete_btn.clicked.connect(lambda: self._on_delete_entry_vault(vault))
         toolbar.addWidget(delete_btn)
@@ -775,6 +835,7 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(copy_password_btn)
 
         lock_btn = QPushButton("Lock")
+        lock_btn.setStyleSheet("background-color: lightgreen;")
         lock_btn.clicked.connect(lambda: self._on_lock_vault(vault, page))
         toolbar.addWidget(lock_btn)
 
@@ -787,7 +848,7 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Horizontal)
 
-        groups_tree = QTreeView()
+        groups_tree = GroupsDropTreeView()
         groups_tree.setItemDelegate(TreeLinesDelegate(groups_tree))
         groups_model = QStandardItemModel()
         groups_tree.setModel(groups_model)
@@ -814,14 +875,17 @@ class MainWindow(QMainWindow):
                 color: white;
             }
         """)
+        groups_tree.set_drop_callback(lambda uuids, group_uuid: self._move_entries_to_group(vault, uuids, group_uuid))
         groups_tree.expanded.connect(lambda idx: groups_tree.setExpanded(idx, True))
         groups_tree.clicked.connect(lambda idx: self._on_group_clicked_vault(vault, groups_model.itemFromIndex(idx), 0, search_input.text()))
         groups_tree.doubleClicked.connect(lambda idx: self._on_group_double_click_vault(vault, groups_model.itemFromIndex(idx), 0))
         splitter.addWidget(groups_tree)
 
-        entries_list = QTreeWidget()
+        entries_list = EntriesDragTreeWidget()
         entries_list.setHeaderLabels(["List entries"])
         entries_list.setColumnCount(1)
+        entries_list.setDragEnabled(True)
+        entries_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         entries_list.setStyleSheet("""
             QTreeWidget {
                 border: 1px solid #ccc;
@@ -839,6 +903,8 @@ class MainWindow(QMainWindow):
                 color: white;
             }
         """)
+        entries_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        entries_list.customContextMenuRequested.connect(lambda pos: self._on_entries_context_menu(vault, pos))
         entries_list.itemDoubleClicked.connect(lambda item, col: self._on_entry_double_click_vault(vault, item, col))
         splitter.addWidget(entries_list)
 
@@ -854,6 +920,9 @@ class MainWindow(QMainWindow):
         return page
 
     def _on_add_entry_vault(self, vault):
+        if not vault.list_groups():
+            QMessageBox.warning(self, "No Groups", "Please create at least one group before adding entries.")
+            return
         group_uuid = None
         current_widget = self.current_vault_widget
         if current_widget and hasattr(current_widget, 'groups_tree'):
@@ -862,6 +931,10 @@ class MainWindow(QMainWindow):
                 selected = current_widget.groups_tree.model().itemFromIndex(current_idx)
                 if selected:
                     group_uuid = selected.data(Qt.UserRole)
+
+        if group_uuid is None:
+            QMessageBox.warning(self, "Select Group", "Please select a specific group in the tree before adding an entry.")
+            return
 
         dialog = EntryDialog(parent=self)
         if dialog.exec():
@@ -1015,6 +1088,66 @@ class MainWindow(QMainWindow):
             except ValueError as e:
                 QMessageBox.warning(self, "Duplicate Group", str(e))
 
+    def _on_entries_context_menu(self, vault, pos):
+        entries_list = self.current_vault_widget.entries_list
+        item = entries_list.itemAt(pos)
+        if not item:
+            return
+        selected_items = entries_list.selectedItems()
+        if not selected_items:
+            return
+        menu = QMenu()
+        move_menu = menu.addMenu("Move to Group")
+        for group in vault.list_groups():
+            action = move_menu.addAction(group["name"])
+            action.setData(group["uuid"])
+        action = menu.exec(entries_list.viewport().mapToGlobal(pos))
+        if action:
+            group_uuid = action.data()
+            uuids = [it.data(0, Qt.UserRole) for it in selected_items if it.data(0, Qt.UserRole)]
+            self._move_entries_to_group(vault, uuids, group_uuid)
+
+    def _move_entries_to_group(self, vault, entry_uuids, group_uuid):
+        if group_uuid is None:
+            QMessageBox.warning(self, "Cannot Move", "Entries must be moved to a specific group, not to the root.")
+            return
+        group_name = None
+        for g in vault.list_groups():
+            if g["uuid"] == group_uuid:
+                group_name = g["name"]
+                break
+        reply = QMessageBox.question(
+            self, "Confirm Move",
+            f"Are you sure you want to move {len(entry_uuids)} entr{'y' if len(entry_uuids) == 1 else 'ies'} to '{group_name}'?",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel
+        )
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            for uuid_str in entry_uuids:
+                vault.move_entry(uuid.UUID(uuid_str), uuid.UUID(group_uuid))
+            page = self.current_vault_widget
+            current_group = None
+            if page and hasattr(page, 'groups_tree'):
+                idx = page.groups_tree.currentIndex()
+                if idx.isValid():
+                    item = page.groups_tree.model().itemFromIndex(idx)
+                    current_group = item.data(Qt.UserRole)
+            self._refresh_vault_view(vault, page)
+            for i in range(page.groups_tree.model().rowCount()):
+                root = page.groups_tree.model().item(i)
+                for j in range(root.rowCount()):
+                    child = root.child(j)
+                    if child.data(Qt.UserRole) == group_uuid:
+                        page.groups_tree.setCurrentIndex(child.index())
+                        break
+                else:
+                    continue
+                break
+            self._refresh_entries_vault(vault, page, group_uuid)
+        except ValueError as e:
+            QMessageBox.warning(self, "Error", str(e))
+
     def _on_copy_username_vault(self, vault):
         current_widget = self.current_vault_widget
         if not current_widget or not hasattr(current_widget, 'entries_list'):
@@ -1060,12 +1193,13 @@ class MainWindow(QMainWindow):
         root_item.setData(None, Qt.UserRole)
         groups_model.appendRow(root_item)
 
-        for group in vault.list_groups():
+        for group in sorted(vault.list_groups(), key=lambda g: g["name"].lower()):
             item = QStandardItem(group["name"])
             item.setData(group["uuid"], Qt.UserRole)
             root_item.appendRow(item)
 
         page.groups_tree.setExpanded(root_item.index(), True)
+        page.groups_tree.setCurrentIndex(root_item.index())
 
         self._refresh_entries_vault(vault, page, None, search_query)
         if self.tabs.currentWidget() is page:
@@ -1076,7 +1210,7 @@ class MainWindow(QMainWindow):
             return
         page.entries_list.clear()
 
-        for entry in vault.list_entries():
+        for entry in sorted(vault.list_entries(), key=lambda e: e["name"].lower()):
             if group_uuid and entry.get("group") != group_uuid:
                 continue
             if search_query:

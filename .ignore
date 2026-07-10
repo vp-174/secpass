@@ -10,3 +10,4 @@ __pycache__/
 /vault*
 /.idea
 /reference_gui_from_rust.zip
+*.cdr

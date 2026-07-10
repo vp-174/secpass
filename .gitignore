@@ -11,3 +11,4 @@ __pycache__/
 /.idea
 /logs
 /reference_gui_from_rust.zip
+*.cdr

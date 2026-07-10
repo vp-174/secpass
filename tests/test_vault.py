@@ -213,6 +213,36 @@ class TestVault:
         assert head["name"] == "Updated"
         assert head["url"] == "https://updated.com"
 
+    def test_move_entry_to_group(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password, name="test_vault")
+        vault.unlock(test_password)
+
+        group_a = vault.create_group("GroupA")
+        group_b = vault.create_group("GroupB")
+        entry_uuid = vault.create_entry("Entry", "https://example.com", group_a)
+
+        head = vault.get_entry_head(entry_uuid)
+        assert head["group"] == str(group_a)
+
+        vault.move_entry(entry_uuid, group_b)
+        head = vault.get_entry_head(entry_uuid)
+        assert head["group"] == str(group_b)
+
+    def test_move_entry_remove_from_group(self, temp_dir, test_password):
+        vault_path = temp_dir / "vault"
+        vault = Vault(vault_path)
+        vault.create(test_password, name="test_vault")
+        vault.unlock(test_password)
+
+        group_uuid = vault.create_group("Group")
+        entry_uuid = vault.create_entry("Entry", "https://example.com", group_uuid)
+
+        vault.move_entry(entry_uuid)
+        head = vault.get_entry_head(entry_uuid)
+        assert "group" not in head
+
     def test_update_entry_with_email_notes(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
         vault = Vault(vault_path)

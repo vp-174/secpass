@@ -124,6 +124,18 @@ class Vault:
         encrypted_head = CipherSuite.encrypt_aes_cbc(self._derived_key, json.dumps(head).encode())
         head_filename.write_bytes(encrypted_head)
 
+    def move_entry(self, entry_uuid: uuid.UUID, group_uuid: Optional[uuid.UUID] = None):
+        head = self.get_entry_head(entry_uuid)
+        if not head:
+            return
+        if group_uuid is not None:
+            head["group"] = str(group_uuid)
+        else:
+            head.pop("group", None)
+        head_filename = self.entries_path / f"{self._hash_uuid(entry_uuid)}.head"
+        encrypted_head = CipherSuite.encrypt_aes_cbc(self._derived_key, json.dumps(head).encode())
+        head_filename.write_bytes(encrypted_head)
+
     def delete_entry(self, entry_uuid: uuid.UUID):
         head_file = self.entries_path / f"{self._hash_uuid(entry_uuid)}.head"
         body_file = self.entries_path / f"{self._hash_uuid(entry_uuid)}.body"

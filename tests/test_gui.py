@@ -5,6 +5,7 @@ import tempfile
 import shutil
 from pathlib import Path
 from unittest.mock import patch
+from PySide6.QtCore import Qt
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -262,6 +263,111 @@ class TestEntryDialog:
         assert dialog.password_input is not None
         assert dialog.url_input is not None
         assert dialog.email_input is not None
+
+
+class TestEntryOperations:
+    @pytest.fixture
+    def app(self):
+        from PySide6.QtWidgets import QApplication
+        app_instance = QApplication.instance() or QApplication(sys.argv)
+        yield app_instance
+
+    @pytest.fixture
+    def window(self, app):
+        from secpass.gui.main_window import MainWindow
+        return MainWindow()
+
+    @pytest.fixture
+    def temp_dir(self):
+        tmp = tempfile.mkdtemp()
+        yield Path(tmp)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_cannot_add_entry_without_groups(self, window, temp_dir):
+        from secpass.vault import Vault
+        vault_path = temp_dir / "test_vault"
+        vault = Vault(vault_path)
+        vault.create("test_password", name="Test")
+        vault.unlock("test_password")
+        vault.lock()
+
+        window.vault_path_input.setText(str(vault_path))
+        window.password_input.setText("test_password")
+        window._on_unlock()
+
+        with patch("PySide6.QtWidgets.QMessageBox.warning") as mock_warning:
+            window._on_add_entry_vault(vault)
+            mock_warning.assert_called_once()
+            args = mock_warning.call_args[0]
+            assert "No Groups" in args[1] or "groups" in args[1].lower()
+
+    def test_move_entry_via_gui(self, window, temp_dir):
+        from secpass.vault import Vault
+        vault_path = temp_dir / "test_vault"
+        vault = Vault(vault_path)
+        vault.create("test_password", name="Test")
+        vault.unlock("test_password")
+        src_group = vault.create_group("Source")
+        dst_group = vault.create_group("Destination")
+        entry_uuid = vault.create_entry("Entry", "https://example.com", src_group)
+        vault.lock()
+
+        window.vault_path_input.setText(str(vault_path))
+        window.password_input.setText("test_password")
+        window._on_unlock()
+
+        from PySide6.QtWidgets import QMessageBox
+        with patch("PySide6.QtWidgets.QMessageBox.question", return_value=QMessageBox.Yes):
+            window._move_entries_to_group(window.vault, [str(entry_uuid)], str(dst_group))
+        head = window.vault.get_entry_head(entry_uuid)
+        assert head["group"] == str(dst_group)
+
+    def test_cannot_add_entry_at_root(self, window, temp_dir):
+        from secpass.vault import Vault
+        vault_path = temp_dir / "test_vault"
+        vault = Vault(vault_path)
+        vault.create("test_password", name="Test")
+        vault.unlock("test_password")
+        vault.create_group("MyGroup")
+        vault.lock()
+
+        window.vault_path_input.setText(str(vault_path))
+        window.password_input.setText("test_password")
+        window._on_unlock()
+
+        window.current_vault_widget.groups_tree.setCurrentIndex(
+            window.current_vault_widget.groups_tree.model().item(0).index()
+        )
+
+        with patch("PySide6.QtWidgets.QMessageBox.warning") as mock_warning:
+            window._on_add_entry_vault(window.vault)
+            mock_warning.assert_called_once()
+            args = mock_warning.call_args[0]
+            assert "Select Group" in args[1] or "select" in args[1].lower()
+
+    def test_move_entry_selects_destination_group(self, window, temp_dir):
+        from secpass.vault import Vault
+        vault_path = temp_dir / "test_vault"
+        vault = Vault(vault_path)
+        vault.create("test_password", name="Test")
+        vault.unlock("test_password")
+        src_group = vault.create_group("Source")
+        dst_group = vault.create_group("Destination")
+        entry_uuid = vault.create_entry("Entry", "https://example.com", src_group)
+        vault.lock()
+
+        window.vault_path_input.setText(str(vault_path))
+        window.password_input.setText("test_password")
+        window._on_unlock()
+
+        from PySide6.QtWidgets import QMessageBox
+        with patch("PySide6.QtWidgets.QMessageBox.question", return_value=QMessageBox.Yes):
+            window._move_entries_to_group(window.vault, [str(entry_uuid)], str(dst_group))
+
+        model = window.current_vault_widget.groups_tree.model()
+        current = model.itemFromIndex(window.current_vault_widget.groups_tree.currentIndex())
+        assert current is not None
+        assert current.data(Qt.UserRole) == str(dst_group)
 
 
 class TestWindowTitle:
