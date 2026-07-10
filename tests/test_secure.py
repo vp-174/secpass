@@ -1,5 +1,5 @@
 import pytest
-from secpass.secure import SecureString
+from secure import SecureString
 
 
 class TestSecureString:

@@ -4,14 +4,14 @@ import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from secpass.crypto import CipherSuite
-from secpass.secure import SecureString
-from secpass.debug import get_logger
+from crypto import CipherSuite
+from secure import SecureString
+from debug import get_logger
 
-logger = get_logger("vault")
+logger = get_logger("storage")
 
 
-class Vault:
+class Storage:
     def __init__(self, path: Path):
         self.path = Path(path)
         self.entries_path = self.path / "entries"

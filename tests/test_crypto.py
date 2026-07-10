@@ -1,5 +1,5 @@
 import pytest
-from secpass.crypto import CipherSuite
+from crypto import CipherSuite
 
 
 class TestCipherSuite:
@@ -82,7 +82,7 @@ class TestCipherSuite:
         key2 = CipherSuite.generate_master_key()
         plaintext = b"Secret"
         ciphertext = CipherSuite.encrypt_aes_cbc(key1, plaintext)
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             CipherSuite.decrypt_aes_cbc(key2, ciphertext)
 
     def test_decrypt_invalid_data_raises(self):

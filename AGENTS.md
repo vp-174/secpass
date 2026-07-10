@@ -4,14 +4,14 @@ A password manager
 
 ## Project Structure
 
-- `secpass/crypto/` - AES-CBC, ChaCha20, Argon2id implementation (`cipher.py`)
-- `secpass/secure/` - SecureString with mlock, zeroize (`secure_string.py`)
-- `secpass/vault/` - Vault with entries/groups management (`vault.py`)
-- `secpass/gui/` - PySide6 GUI (`main_window.py`)
-- `secpass/debug.py` - Logging setup
-- `tests/` - 94 passing tests
+- `crypto/` - AES-CBC, ChaCha20, Argon2id implementation (`cipher.py`)
+- `secure/` - SecureString with mlock, zeroize (`secure_string.py`)
+- `storage/` - Storage with entries/groups management (`storage.py`)
+- `gui/` - PySide6 GUI (`main_window.py`)
+- `debug.py` - Logging setup
+- `tests/` - 100 passing tests
 
-Package `__init__.py` files re-export public API (e.g. `from secpass.crypto import CipherSuite`).
+Package `__init__.py` files re-export public API (e.g. `from crypto import CipherSuite`).
 
 ## Python Tech Stack
 
@@ -23,8 +23,8 @@ Package `__init__.py` files re-export public API (e.g. `from secpass.crypto impo
 
 ## Key Architecture Notes
 
-### Vault Layout
-- Vault is a folder containing: `entries/`, `groups/`, `masterkey`
+### Storage Layout
+- Storage (vault) is a folder containing: `entries/`, `groups/`, `masterkey`
 - Filenames = SHA256(UUID) to prevent content leakage
 - Entry split: **Head** (public: name, UUID, URL) + **Body** (secret: password, username)
 - Internal vault name stored encrypted in masterkey file
@@ -56,7 +56,7 @@ Package `__init__.py` files re-export public API (e.g. `from secpass.crypto impo
                     (with PKCS#7 padding)
 ```
 
-### Vault Creation Flow
+### Storage Creation Flow
 
 ```
   Password + KeyFile                    os.urandom(16)
@@ -75,7 +75,7 @@ Package `__init__.py` files re-export public API (e.g. `from secpass.crypto impo
   masterkey file:  salt(16) :: enc_data
 ```
 
-### Vault Unlock Flow
+### Storage Unlock Flow
 
 ```
   masterkey file
@@ -96,7 +96,7 @@ Package `__init__.py` files re-export public API (e.g. `from secpass.crypto impo
        │   vault_data (JSON)    master_key (32b)
        │         │                   │
        │         ▼                   ▼
-       │   vault._name       SecureString(bytearray)
+       │   storage._name      SecureString(bytearray)
        │                     (mlock → no swap)
        │                            │
        │              ┌─────────────┤
@@ -173,7 +173,7 @@ Package `__init__.py` files re-export public API (e.g. `from secpass.crypto impo
        └── zeroize():
              for each byte: data[i] = 0x00
              _unlock_memory() → munlock
-             (called on Vault.lock(), __del__, context manager exit)
+             (called on Storage.lock(), __del__, context manager exit)
 ```
 
 ### On-Disk Format Summary

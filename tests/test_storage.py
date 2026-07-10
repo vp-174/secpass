@@ -1,13 +1,13 @@
 import pytest
 from pathlib import Path
-from secpass.vault import Vault
-from secpass.crypto import CipherSuite
+from storage import Storage
+from crypto import CipherSuite
 
 
 class TestVault:
     def test_vault_creation(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
 
         assert vault_path.exists()
@@ -17,36 +17,36 @@ class TestVault:
 
     def test_vault_exists_false_for_new_path(self, temp_dir):
         vault_path = temp_dir / "nonexistent_vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         assert not vault.exists()
 
     def test_vault_exists_true_after_create(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         assert vault.exists()
 
     def test_unlock_vault(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
 
-        vault2 = Vault(vault_path)
+        vault2 = Storage(vault_path)
         vault2.unlock(test_password)
         assert vault2.is_unlocked()
 
     def test_unlock_wrong_password_raises(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
 
-        vault2 = Vault(vault_path)
+        vault2 = Storage(vault_path)
         with pytest.raises(Exception):
             vault2.unlock("wrong_password")
 
     def test_lock_vault(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
         assert vault.is_unlocked()
@@ -56,7 +56,7 @@ class TestVault:
 
     def test_create_entry(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -65,7 +65,7 @@ class TestVault:
 
     def test_set_and_get_entry_body(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -78,7 +78,7 @@ class TestVault:
 
     def test_get_entry_head(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -91,7 +91,7 @@ class TestVault:
 
     def test_list_entries(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -106,7 +106,7 @@ class TestVault:
 
     def test_create_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -115,7 +115,7 @@ class TestVault:
 
     def test_get_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -127,7 +127,7 @@ class TestVault:
 
     def test_create_group_with_parent(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -139,7 +139,7 @@ class TestVault:
 
     def test_list_groups(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -154,7 +154,7 @@ class TestVault:
 
     def test_entry_with_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -166,28 +166,28 @@ class TestVault:
 
     def test_vault_with_keyfile(self, temp_dir, test_password, keyfile):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, keyfile, name="test_vault")
 
-        vault2 = Vault(vault_path)
+        vault2 = Storage(vault_path)
         vault2.unlock(test_password, keyfile)
         assert vault2.is_unlocked()
 
     def test_vault_wrong_keyfile_fails(self, temp_dir, test_password, keyfile):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, keyfile, name="test_vault")
 
         other_keyfile = temp_dir / "other.key"
         other_keyfile.write_bytes(b"different_key_material")
 
-        vault2 = Vault(vault_path)
+        vault2 = Storage(vault_path)
         with pytest.raises(Exception):
             vault2.unlock(test_password, other_keyfile)
 
     def test_double_encryption_body(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -202,7 +202,7 @@ class TestVault:
 
     def test_update_entry_head(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -215,7 +215,7 @@ class TestVault:
 
     def test_move_entry_to_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -232,7 +232,7 @@ class TestVault:
 
     def test_move_entry_remove_from_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -245,7 +245,7 @@ class TestVault:
 
     def test_update_entry_with_email_notes(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -258,7 +258,7 @@ class TestVault:
 
     def test_delete_entry(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -270,7 +270,7 @@ class TestVault:
 
     def test_update_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -282,7 +282,7 @@ class TestVault:
 
     def test_delete_group(self, temp_dir, test_password):
         vault_path = temp_dir / "vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
 
@@ -296,9 +296,9 @@ class TestVault:
 class TestDuplicateNames:
     @pytest.fixture
     def vault(self, temp_dir, test_password):
-        from secpass.vault import Vault
+        from storage import Storage
         vault_path = temp_dir / "dup_vault"
-        vault = Vault(vault_path)
+        vault = Storage(vault_path)
         vault.create(test_password, name="test_vault")
         vault.unlock(test_password)
         return vault
