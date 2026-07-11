@@ -3,6 +3,7 @@ from PySide6.QtGui import QColor, QPen, QPainter
 
 
 class TreeLinesDelegate(QStyledItemDelegate):
+    """Делегат для отрисовки соединительных линий в дереве групп."""
     def paint(self, painter, option, index):
         super().paint(painter, option, index)
 

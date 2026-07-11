@@ -18,11 +18,20 @@ from gui.views.entries_tree_widget import EntriesDragTreeWidget
 from gui.views.groups_tree_view import GroupsDropTreeView
 
 
+def _app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent.parent
+
+
 class MainWindow(QMainWindow):
+    """Главное окно приложения: строка входа, вкладки хранилищ,
+    меню, управление хранилищами и лицензией."""
     def __init__(self):
         super().__init__()
-        icon = QIcon(str(Path(__file__).parent.parent / "secpass.ico"))
-        self.setWindowIcon(icon)
+        icon_path = _app_dir() / "secpass.ico"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         self.setWindowTitle("SecPass")
         self.resize(1000, 650)
         self.vault = None
@@ -90,7 +99,7 @@ class MainWindow(QMainWindow):
             "<b>SecPass</b><br><br>"
             "Version: 1.0.0<br>"
             "Developer: Vladislav Panov<br>"
-            "Contact: support@secpass.app<br>"
+             "Contact: abasecode@gmail.com<br>"
             "<a href='https://fr-space.ru'>https://fr-space.ru</a>"
             )
 

@@ -4,6 +4,7 @@ from gui.helpers.password_utils import get_strength_level
 
 
 class PasswordStrengthBar(QWidget):
+    """Виджет индикатора надёжности пароля: цветовая шкала от красного до зелёного."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self._entropy = 0

@@ -8,6 +8,8 @@ from gui.views.password_strength_bar import PasswordStrengthBar
 
 
 class PasswordGeneratorDialog(QDialog):
+    """Диалог генератора паролей: длина, символы, исключение повторов,
+    отображение энтропии."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Password Generator")

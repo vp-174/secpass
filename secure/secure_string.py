@@ -3,6 +3,8 @@ import ctypes
 
 
 class SecureString:
+    """Защищённая строка: данные в памяти блокируются (mlock/VirtualLock)
+    и гарантированно зануляются при освобождении."""
     def __init__(self, data: bytes = b""):
         self._data = bytearray(data)
         self._locked = self._lock_memory()

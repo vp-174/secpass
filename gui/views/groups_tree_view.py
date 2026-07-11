@@ -4,6 +4,8 @@ from PySide6.QtCore import Qt, QMimeData, QModelIndex
 
 
 class GroupsDropTreeView(QTreeView):
+    """Виджет групп: древовидная структура, нередактируемые имена,
+    приём записей через drop."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self._drop_callback = None

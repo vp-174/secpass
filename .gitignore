@@ -12,3 +12,13 @@ __pycache__/
 /logs
 /reference_gui_from_rust.zip
 *.cdr
+*.spec
+.ignore
+AGENTS.md
+/tests
+/docs
+/build
+/dist
+private.pem
+public.pem
+license.key

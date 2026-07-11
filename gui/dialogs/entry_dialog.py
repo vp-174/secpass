@@ -9,6 +9,7 @@ from gui.views.password_strength_bar import PasswordStrengthBar
 
 
 class EntryDialog(QDialog):
+    """Диалог создания/редактирования записи: название, URL, логин, пароль, email, заметки."""
     def __init__(self, entry_data=None, parent=None):
         super().__init__(parent)
         name = entry_data.get("name", "") if entry_data else ""

@@ -6,12 +6,14 @@ from typing import Optional, Dict, Any
 
 from crypto import CipherSuite
 from secure import SecureString
-from debug import get_logger
+from log import get_logger
 
 logger = get_logger("storage")
 
 
 class Storage:
+    """Хранилище паролей: создание, открытие, блокировка, CRUD записей и групп.
+    Файлы шифруются AES-256-CBC, имена — SHA256(UUID)."""
     def __init__(self, path: Path):
         self.path = Path(path)
         self.entries_path = self.path / "entries"

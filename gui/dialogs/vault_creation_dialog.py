@@ -7,6 +7,7 @@ from gui.views.password_strength_bar import PasswordStrengthBar
 
 
 class VaultCreationDialog(QDialog):
+    """Диалог создания нового хранилища: имя, путь, пароль, подтверждение, ключ-файл."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Create New Vault")
