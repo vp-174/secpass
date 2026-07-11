@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any
 
 from crypto import CipherSuite
 from secure import SecureString
-from debug import get_logger
+from log import get_logger
 
 logger = get_logger("storage")
 
