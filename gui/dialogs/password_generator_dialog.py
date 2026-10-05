@@ -1,15 +1,31 @@
-import math
-import random
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton,
-    QLabel, QCheckBox, QSpinBox, QGroupBox, QFormLayout, QGridLayout, QDialogButtonBox)
-from PySide6.QtCore import Qt
-from gui.helpers.password_utils import calculate_entropy, get_strength_level
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+)
+
+from gui.helpers.password_utils import (
+    GEN_MAX_LENGTH,
+    GEN_MIN_LENGTH,
+    calculate_entropy,
+    generate_password,
+    get_strength_level,
+)
 from gui.views.password_strength_bar import PasswordStrengthBar
 
 
 class PasswordGeneratorDialog(QDialog):
-    """Диалог генератора паролей: длина, символы, исключение повторов,
+    """Диалог генератора паролей: длина, символы, CSPRNG,
     отображение энтропии."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Password Generator")
@@ -43,7 +59,7 @@ class PasswordGeneratorDialog(QDialog):
         options_layout = QGridLayout(options_group)
 
         self.length_spin = QSpinBox()
-        self.length_spin.setRange(8, 128)
+        self.length_spin.setRange(GEN_MIN_LENGTH, GEN_MAX_LENGTH)
         self.length_spin.setValue(20)
         self.length_spin.valueChanged.connect(self._generate)
         options_layout.addWidget(QLabel("Length:"), 0, 0)
@@ -77,28 +93,19 @@ class PasswordGeneratorDialog(QDialog):
         layout.addWidget(buttons)
 
     def _generate(self):
-        chars = ""
-        if self.use_uppercase.isChecked():
-            chars += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        if self.use_lowercase.isChecked():
-            chars += "abcdefghijklmnopqrstuvwxyz"
-        if self.use_digits.isChecked():
-            chars += "0123456789"
-        if self.use_special.isChecked():
-            chars += "!@#$%^&*()_+-=[]{}|;:,.<>?"
-
-        if not chars:
-            chars = "abcdefghijklmnopqrstuvwxyz"
-
-        length = self.length_spin.value()
-        password = "".join(random.choice(chars) for _ in range(length))
+        password = generate_password(
+            self.length_spin.value(),
+            upper=self.use_uppercase.isChecked(),
+            lower=self.use_lowercase.isChecked(),
+            digits=self.use_digits.isChecked(),
+            special=self.use_special.isChecked(),
+        )
         self.password_display.setText(password)
 
         entropy = calculate_entropy(password)
         self.strength_bar.set_entropy(entropy)
-        level, label, color = get_strength_level(entropy)
+        _, label = get_strength_level(entropy)
         self.strength_label.setText(f"{label} - {int(entropy)} bits entropy")
-        self.strength_label.setStyleSheet("font-size: 11px;")
 
     def get_password(self):
         return self.password_display.text()

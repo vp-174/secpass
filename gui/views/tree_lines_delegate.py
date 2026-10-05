@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QStyledItemDelegate
-from PySide6.QtGui import QColor, QPen, QPainter
+from PySide6.QtGui import QColor, QPen
 
 
 class TreeLinesDelegate(QStyledItemDelegate):

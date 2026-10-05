@@ -1,6 +1,6 @@
 import json
 from PySide6.QtWidgets import QTreeView
-from PySide6.QtCore import Qt, QMimeData, QModelIndex
+from PySide6.QtCore import Qt, QModelIndex
 
 
 class GroupsDropTreeView(QTreeView):

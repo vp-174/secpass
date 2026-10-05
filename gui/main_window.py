@@ -1,42 +1,79 @@
 import sys
-import uuid
-import json
 from pathlib import Path
+
+from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
-    QPushButton, QLabel, QStackedWidget, QMessageBox, QDialog,
-    QDialogButtonBox, QFormLayout, QTreeWidget, QTreeWidgetItem,
-    QFileDialog, QSplitter, QTabWidget, QMenu, QAbstractItemView,
-    QCheckBox
+    QApplication,
+    QCheckBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QStackedWidget,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Qt, QModelIndex
-from PySide6.QtGui import QAction, QStandardItemModel, QStandardItem, QIcon
+
 from gui.dialogs.vault_creation_dialog import VaultCreationDialog
-from gui.dialogs.entry_dialog import EntryDialog
-from gui.views.tree_lines_delegate import TreeLinesDelegate
-from gui.views.entries_tree_widget import EntriesDragTreeWidget
-from gui.views.groups_tree_view import GroupsDropTreeView
+from gui.views.vault_page import VaultPage
+from storage import (
+    InvalidPasswordError,
+    KeyfileError,
+    Storage,
+    StorageError,
+    TamperError,
+    VaultExistsError,
+    VaultNotFoundError,
+)
+
+IDLE_LOCK_MS = 5 * 60 * 1000
+
+TABS_STYLE = """
+    QTabWidget::pane { border: 0; }
+    QTabBar::close-button { margin: 0; padding: 0; }
+    QTabBar { spacing: 0; padding: 0; }
+    QTabBar::tab { padding: 4px 8px; }
+"""
 
 
-def _app_dir() -> Path:
+def _resource_dir() -> Path:
+    """Папка ресурсов: временная распаковка PyInstaller (_MEIPASS)
+    или корень проекта при запуске из исходников."""
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
     return Path(__file__).parent.parent
 
 
 class MainWindow(QMainWindow):
-    """Главное окно приложения: строка входа, вкладки хранилищ,
-    меню, управление хранилищами и лицензией."""
+    """Главное окно приложения: строка входа, вкладки хранилищ, меню,
+    автоблокировка по бездействию и блокировка при закрытии."""
+
     def __init__(self):
         super().__init__()
-        icon_path = _app_dir() / "secpass.ico"
+        icon_path = _resource_dir() / "secpass.ico"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setWindowTitle("SecPass")
         self.resize(1000, 650)
-        self.vault = None
+
+        self._idle_timer = QTimer(self)
+        self._idle_timer.setSingleShot(True)
+        self._idle_timer.setInterval(IDLE_LOCK_MS)
+        self._idle_timer.timeout.connect(self._on_idle_timeout)
+
         self._init_ui()
         self._create_menu()
+
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+        self._idle_timer.start()
 
     def _init_ui(self):
         central = QWidget()
@@ -48,12 +85,7 @@ class MainWindow(QMainWindow):
         self.tabs.setDocumentMode(False)
         self.tabs.tabCloseRequested.connect(self._on_close_tab)
         self.tabs.currentChanged.connect(self._update_window_title)
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: 0; }
-            QTabBar::close-button { margin: 0; padding: 0; }
-            QTabBar { spacing: 0; padding: 0; }
-            QTabBar::tab { padding: 4px 8px; }
-        """)
+        self.tabs.setStyleSheet(TABS_STYLE)
 
         new_tab_btn = QPushButton("+")
         new_tab_btn.setFixedSize(36, 24)
@@ -95,13 +127,15 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
 
     def _on_about(self):
-        QMessageBox.about(self, "About SecPass",
+        QMessageBox.about(
+            self,
+            "About SecPass",
             "<b>SecPass</b><br><br>"
-            "Version: 1.0.0<br>"
+            "Version: 2.0.0<br>"
             "Developer: Vladislav Panov<br>"
-             "Contact: abasecode@gmail.com<br>"
-            "<a href='https://fr-space.ru'>https://fr-space.ru</a>"
-            )
+            "Contact: abasecode@gmail.com<br>"
+            "<a href='https://fr-space.ru'>https://fr-space.ru</a>",
+        )
 
     def _create_login_page(self):
         self.login_page = QWidget()
@@ -176,428 +210,83 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
-    def _create_vault_page(self, vault):
-        page = QWidget()
-        page.vault = vault
-        layout = QVBoxLayout(page)
+    # --- автоблокировка ---
 
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(5)
+    def eventFilter(self, obj, event):
+        if event.type() in (
+            QEvent.KeyPress,
+            QEvent.MouseButtonPress,
+            QEvent.MouseMove,
+            QEvent.Wheel,
+        ):
+            self._idle_timer.start()
+        return super().eventFilter(obj, event)
 
-        add_group_btn = QPushButton("Add Group")
-        add_group_btn.clicked.connect(lambda: self._on_add_group_vault(vault))
-        toolbar.addWidget(add_group_btn)
+    def _on_idle_timeout(self):
+        if self.tabs.count():
+            self._lock_all()
+            self.status_label.setText("Vault locked due to inactivity.")
+        self._idle_timer.start()
 
-        delete_group_btn = QPushButton("Delete Group")
-        delete_group_btn.clicked.connect(lambda: self._on_delete_group_vault(vault))
-        toolbar.addWidget(delete_group_btn)
+    def _lock_all(self):
+        for i in range(self.tabs.count() - 1, -1, -1):
+            page = self.tabs.widget(i)
+            if isinstance(page, VaultPage):
+                page.storage.lock()
+                page.deleteLater()
+            self.tabs.removeTab(i)
+        self.stack.setCurrentIndex(0)
+        self.password_input.clear()
+        self._update_window_title()
 
-        toolbar.addStretch()
+    def closeEvent(self, event):
+        self._lock_all()
+        super().closeEvent(event)
 
-        add_entry_btn = QPushButton("Add Entry")
-        add_entry_btn.clicked.connect(lambda: self._on_add_entry_vault(vault))
-        toolbar.addWidget(add_entry_btn)
+    # --- вкладки и хранилища ---
 
-        delete_btn = QPushButton("Delete")
-        delete_btn.clicked.connect(lambda: self._on_delete_entry_vault(vault))
-        toolbar.addWidget(delete_btn)
-
-        copy_username_btn = QPushButton("Copy Username")
-        copy_username_btn.clicked.connect(lambda: self._on_copy_username_vault(vault))
-        toolbar.addWidget(copy_username_btn)
-
-        copy_password_btn = QPushButton("Copy Password")
-        copy_password_btn.clicked.connect(lambda: self._on_copy_password_vault(vault))
-        toolbar.addWidget(copy_password_btn)
-
-        lock_btn = QPushButton("Lock")
-        lock_btn.setStyleSheet("background-color: lightgreen;")
-        lock_btn.clicked.connect(lambda: self._on_lock_vault(vault, page))
-        toolbar.addWidget(lock_btn)
-
-        layout.addLayout(toolbar)
-
-        search_input = QLineEdit()
-        search_input.setPlaceholderText("Search entries...")
-        search_input.textChanged.connect(lambda t: self._on_search_vault(vault, t))
-        layout.addWidget(search_input)
-
-        splitter = QSplitter(Qt.Horizontal)
-
-        groups_tree = GroupsDropTreeView()
-        groups_tree.setItemDelegate(TreeLinesDelegate(groups_tree))
-        groups_model = QStandardItemModel()
-        groups_tree.setModel(groups_model)
-        groups_tree.setHeaderHidden(True)
-        groups_tree.setRootIsDecorated(True)
-        groups_tree.setItemsExpandable(True)
-        groups_tree.setIndentation(20)
-        groups_tree.setProperty("showTreeLines", True)
-        groups_tree.setStyleSheet("""
-            QTreeView {
-                border: 1px solid #ccc;
-                background: #fafafa;
-                show-decoration-selected: 1;
-            }
-            QTreeView::item {
-                padding: 4px;
-                min-height: 22px;
-            }
-            QTreeView::item:hover {
-                background: #e5f3ff;
-            }
-            QTreeView::item:selected {
-                background: #0078d7;
-                color: white;
-            }
-        """)
-        groups_tree.set_drop_callback(lambda uuids, group_uuid: self._move_entries_to_group(vault, uuids, group_uuid))
-        groups_tree.expanded.connect(lambda idx: groups_tree.setExpanded(idx, True))
-        groups_tree.clicked.connect(lambda idx: self._on_group_clicked_vault(vault, groups_model.itemFromIndex(idx), 0, search_input.text()))
-        groups_tree.doubleClicked.connect(lambda idx: self._on_group_double_click_vault(vault, groups_model.itemFromIndex(idx), 0))
-        splitter.addWidget(groups_tree)
-
-        entries_list = EntriesDragTreeWidget()
-        entries_list.setHeaderLabels(["List entries"])
-        entries_list.setColumnCount(1)
-        entries_list.setDragEnabled(True)
-        entries_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        entries_list.setStyleSheet("""
-            QTreeWidget {
-                border: 1px solid #ccc;
-                background: #fff;
-            }
-            QTreeWidget::item {
-                padding: 6px 8px 6px 0px;
-                border-bottom: 1px solid #eee;
-            }
-            QTreeWidget::item:hover {
-                background: #e5f3ff;
-            }
-            QTreeWidget::item:selected {
-                background: #0078d7;
-                color: white;
-            }
-        """)
-        entries_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        entries_list.customContextMenuRequested.connect(lambda pos: self._on_entries_context_menu(vault, pos))
-        entries_list.itemDoubleClicked.connect(lambda item, col: self._on_entry_double_click_vault(vault, item, col))
-        splitter.addWidget(entries_list)
-
-        splitter.setSizes([250, 500])
-
-        layout.addWidget(splitter)
-
-        page.groups_tree = groups_tree
-        page.entries_list = entries_list
-
-        self._refresh_vault_view(vault, page)
-
+    def _create_vault_page(self, storage: Storage) -> VaultPage:
+        page = VaultPage(storage, self)
+        page.lock_requested.connect(lambda p=page: self._lock_page(p))
+        page.changed.connect(self._update_window_title)
         return page
 
-    def _on_add_entry_vault(self, vault):
-        if not vault.list_groups():
-            QMessageBox.warning(self, "No Groups", "Please create at least one group before adding entries.")
-            return
-        group_uuid = None
-        current_widget = self.current_vault_widget
-        if current_widget and hasattr(current_widget, 'groups_tree'):
-            current_idx = current_widget.groups_tree.currentIndex()
-            if current_idx.isValid():
-                selected = current_widget.groups_tree.model().itemFromIndex(current_idx)
-                if selected:
-                    group_uuid = selected.data(Qt.UserRole)
-
-        if group_uuid is None:
-            QMessageBox.warning(self, "Select Group", "Please select a specific group in the tree before adding an entry.")
-            return
-
-        dialog = EntryDialog(parent=self)
-        if dialog.exec():
-            data = dialog.get_data()
-            try:
-                entry_uuid = vault.create_entry(data["name"], data["url"], group_uuid)
-                vault.set_entry_body(entry_uuid, data["username"], data["password"], data.get("email", ""), data.get("notes", ""))
-                self._refresh_vault_view(vault, self.current_vault_widget)
-            except ValueError as e:
-                QMessageBox.warning(self, "Duplicate Entry", str(e))
-
-    def _on_add_group_vault(self, vault):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("New Group")
-        layout = QVBoxLayout(dialog)
-
-        name_input = QLineEdit()
-        name_input.setPlaceholderText("Group Name")
-        layout.addWidget(name_input)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        if dialog.exec() and name_input.text():
-            try:
-                vault.create_group(name_input.text())
-                self._refresh_vault_view(vault, self.current_vault_widget)
-            except ValueError as e:
-                QMessageBox.warning(self, "Duplicate Group", str(e))
-
-    def _on_edit_entry_vault(self, vault):
-        current_widget = self.current_vault_widget
-        if not current_widget or not hasattr(current_widget, 'entries_list'):
-            return
-        selected = current_widget.entries_list.currentItem()
-        if not selected:
-            return
-        self._edit_entry_vault(vault, selected, current_widget)
-
-    def _on_entry_double_click_vault(self, vault, item, column):
-        current_widget = self.current_vault_widget
-        if current_widget:
-            self._edit_entry_vault(vault, item, current_widget)
-
-    def _edit_entry_vault(self, vault, item, page):
-        entry_uuid_str = item.data(0, Qt.UserRole)
-        if not entry_uuid_str:
-            return
-        entry_uuid = uuid.UUID(entry_uuid_str)
-        head = vault.get_entry_head(entry_uuid)
-        body = vault.get_entry_body(entry_uuid)
-
-        entry_data = {
-            "name": head.get("name", "") if head else "",
-            "url": head.get("url", "") if head else "",
-            "username": body.get("username", "") if body else "",
-            "password": body.get("password", "") if body else "",
-            "email": body.get("email", "") if body else "",
-            "notes": body.get("notes", "") if body else "",
-        }
-
-        dialog = EntryDialog(entry_data, self)
-        if dialog.exec():
-            data = dialog.get_data()
-            try:
-                vault.update_entry_head(entry_uuid, data["name"], data["url"])
-                vault.set_entry_body(entry_uuid, data["username"], data["password"], data.get("email", ""), data.get("notes", ""))
-                self._refresh_vault_view(vault, page)
-            except ValueError as e:
-                QMessageBox.warning(self, "Duplicate Entry", str(e))
-
-    def _on_delete_entry_vault(self, vault):
-        current_widget = self.current_vault_widget
-        if not current_widget or not hasattr(current_widget, 'entries_list'):
-            return
-        selected = current_widget.entries_list.currentItem()
-        if not selected:
-            return
-
-        reply = QMessageBox.question(
-            self, "Delete Entry",
-            "Are you sure you want to delete this entry?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-
-        if reply == QMessageBox.Yes:
-            entry_uuid = selected.data(0, Qt.UserRole)
-            if entry_uuid:
-                vault.delete_entry(uuid.UUID(entry_uuid))
-                self._refresh_vault_view(vault, current_widget)
-
-    def _on_delete_group_vault(self, vault):
-        current_widget = self.current_vault_widget
-        if not current_widget or not hasattr(current_widget, 'groups_tree'):
-            return
-        selected_indexes = current_widget.groups_tree.selectedIndexes()
-        if not selected_indexes:
-            return
-        selected = current_widget.groups_tree.model().itemFromIndex(selected_indexes[0])
-        if not selected:
-            return
-
-        group_uuid = selected.data(Qt.UserRole)
-        if not group_uuid:
-            return
-
-        reply = QMessageBox.question(
-            self, "Delete Group",
-            "Are you sure you want to delete this group?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-
-        if reply == QMessageBox.Yes:
-            vault.delete_group(uuid.UUID(group_uuid))
-            self._refresh_vault_view(vault, current_widget)
-
-    def _on_search_vault(self, vault, text):
-        self._refresh_vault_view(vault, self.current_vault_widget, text if text else None)
-
-    def _on_group_clicked_vault(self, vault, item, column, search_text):
-        group_uuid = item.data(Qt.UserRole)
-        self._refresh_entries_vault(vault, self.current_vault_widget, group_uuid, search_text if search_text else None)
-
-    def _on_group_double_click_vault(self, vault, item, column):
-        group_uuid = item.data(Qt.UserRole)
-        if not group_uuid:
-            return
-        group = vault.get_group(uuid.UUID(group_uuid))
-        if not group:
-            return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Edit Group")
-        layout = QVBoxLayout(dialog)
-
-        name_input = QLineEdit(group["name"])
-        name_input.setPlaceholderText("Group Name")
-        layout.addWidget(name_input)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        if dialog.exec() and name_input.text():
-            try:
-                vault.update_group(uuid.UUID(group_uuid), name_input.text())
-                self._refresh_vault_view(vault, self.current_vault_widget)
-            except ValueError as e:
-                QMessageBox.warning(self, "Duplicate Group", str(e))
-
-    def _on_entries_context_menu(self, vault, pos):
-        entries_list = self.current_vault_widget.entries_list
-        item = entries_list.itemAt(pos)
-        if not item:
-            return
-        selected_items = entries_list.selectedItems()
-        if not selected_items:
-            return
-        menu = QMenu()
-        move_menu = menu.addMenu("Move to Group")
-        for group in vault.list_groups():
-            action = move_menu.addAction(group["name"])
-            action.setData(group["uuid"])
-        action = menu.exec(entries_list.viewport().mapToGlobal(pos))
-        if action:
-            group_uuid = action.data()
-            uuids = [it.data(0, Qt.UserRole) for it in selected_items if it.data(0, Qt.UserRole)]
-            self._move_entries_to_group(vault, uuids, group_uuid)
-
-    def _move_entries_to_group(self, vault, entry_uuids, group_uuid):
-        if group_uuid is None:
-            QMessageBox.warning(self, "Cannot Move", "Entries must be moved to a specific group, not to the root.")
-            return
-        group_name = None
-        for g in vault.list_groups():
-            if g["uuid"] == group_uuid:
-                group_name = g["name"]
-                break
-        reply = QMessageBox.question(
-            self, "Confirm Move",
-            f"Are you sure you want to move {len(entry_uuids)} entr{'y' if len(entry_uuids) == 1 else 'ies'} to '{group_name}'?",
-            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel
-        )
-        if reply != QMessageBox.Yes:
-            return
-        try:
-            for uuid_str in entry_uuids:
-                vault.move_entry(uuid.UUID(uuid_str), uuid.UUID(group_uuid))
-            page = self.current_vault_widget
-            current_group = None
-            if page and hasattr(page, 'groups_tree'):
-                idx = page.groups_tree.currentIndex()
-                if idx.isValid():
-                    item = page.groups_tree.model().itemFromIndex(idx)
-                    current_group = item.data(Qt.UserRole)
-            self._refresh_vault_view(vault, page)
-            for i in range(page.groups_tree.model().rowCount()):
-                root = page.groups_tree.model().item(i)
-                for j in range(root.rowCount()):
-                    child = root.child(j)
-                    if child.data(Qt.UserRole) == group_uuid:
-                        page.groups_tree.setCurrentIndex(child.index())
-                        break
-                else:
-                    continue
-                break
-            self._refresh_entries_vault(vault, page, group_uuid)
-        except ValueError as e:
-            QMessageBox.warning(self, "Error", str(e))
-
-    def _on_copy_username_vault(self, vault):
-        current_widget = self.current_vault_widget
-        if not current_widget or not hasattr(current_widget, 'entries_list'):
-            return
-        selected = current_widget.entries_list.currentItem()
-        if not selected:
-            return
-        entry_uuid = selected.data(0, Qt.UserRole)
-        if entry_uuid:
-            body = vault.get_entry_body(uuid.UUID(entry_uuid))
-            if body:
-                QApplication.clipboard().setText(body.get("username", ""))
-
-    def _on_copy_password_vault(self, vault):
-        current_widget = self.current_vault_widget
-        if not current_widget or not hasattr(current_widget, 'entries_list'):
-            return
-        selected = current_widget.entries_list.currentItem()
-        if not selected:
-            return
-        entry_uuid = selected.data(0, Qt.UserRole)
-        if entry_uuid:
-            body = vault.get_entry_body(uuid.UUID(entry_uuid))
-            if body:
-                QApplication.clipboard().setText(body.get("password", ""))
-
-    def _on_lock_vault(self, vault, page):
-        vault.lock()
+    def _lock_page(self, page: VaultPage):
+        page.storage.lock()
         index = self.tabs.indexOf(page)
         if index >= 0:
             self.tabs.removeTab(index)
+        page.deleteLater()
         if self.tabs.count() == 0:
             self.stack.setCurrentIndex(0)
+            self.setWindowTitle("SecPass")
 
-    def _refresh_vault_view(self, vault, page, search_query=None):
-        if not page or not hasattr(page, 'groups_tree'):
+    def _on_close_tab(self, index):
+        page = self.tabs.widget(index)
+        if isinstance(page, VaultPage):
+            page.storage.lock()
+            page.deleteLater()
+        self.tabs.removeTab(index)
+        if self.tabs.count() == 0:
+            self.stack.setCurrentIndex(0)
+            self.setWindowTitle("SecPass")
+
+    def _update_window_title(self):
+        if self.stack.currentIndex() == 0:
+            self.setWindowTitle("SecPass")
             return
+        page = self.tabs.currentWidget()
+        if isinstance(page, VaultPage) and page.storage.is_unlocked():
+            storage = page.storage
+            groups_count = len(storage.list_groups())
+            entries_count = len(storage.list_entries())
+            self.setWindowTitle(
+                f"SecPass :: {storage.name} | groups: {groups_count} | entries: {entries_count}"
+            )
+        else:
+            self.setWindowTitle("SecPass")
 
-        groups_model = page.groups_tree.model()
-        groups_model.clear()
-
-        root_item = QStandardItem("All Entries")
-        root_item.setData(None, Qt.UserRole)
-        groups_model.appendRow(root_item)
-
-        for group in sorted(vault.list_groups(), key=lambda g: g["name"].lower()):
-            item = QStandardItem(group["name"])
-            item.setData(group["uuid"], Qt.UserRole)
-            root_item.appendRow(item)
-
-        page.groups_tree.setExpanded(root_item.index(), True)
-        page.groups_tree.setCurrentIndex(root_item.index())
-
-        self._refresh_entries_vault(vault, page, None, search_query)
-        if self.tabs.currentWidget() is page:
-            self._update_window_title()
-
-    def _refresh_entries_vault(self, vault, page, group_uuid=None, search_query=None):
-        if not page or not hasattr(page, 'entries_list'):
-            return
-        page.entries_list.clear()
-
-        for entry in sorted(vault.list_entries(), key=lambda e: e["name"].lower()):
-            if group_uuid and entry.get("group") != group_uuid:
-                continue
-            if search_query:
-                name = entry.get("name", "").lower()
-                url = entry.get("url", "").lower()
-                if search_query.lower() not in name and search_query.lower() not in url:
-                    continue
-
-            item = QTreeWidgetItem([entry["name"]])
-            item.setData(0, Qt.UserRole, entry["uuid"])
-            page.entries_list.addTopLevelItem(item)
+    # --- вход / создание ---
 
     def _on_browse_vault(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Vault Folder")
@@ -615,80 +304,67 @@ class MainWindow(QMainWindow):
 
     def _on_new_vault(self):
         dialog = VaultCreationDialog(self)
-        if dialog.exec():
-            data = dialog.get_data()
-            vault_path = data["path"]
-
-            from storage import Storage
-            vault = Storage(vault_path)
+        if not dialog.exec():
+            return
+        data = dialog.get_data()
+        vault = Storage(data["path"])
+        try:
             vault.create(data["password"], data.get("keyfile"), data.get("name"))
-
-            self.vault_path_input.clear()
-            self.keyfile_input.clear()
-            self.password_input.setFocus()
-            QMessageBox.information(self, "Success", f"Vault created at: {vault_path}\nNow unlock it.")
-
-    def _on_unlock(self):
-        from storage import Storage
-        vault_path = Path(self.vault_path_input.text())
-
-        if not vault_path.exists() or not (vault_path / "masterkey").exists():
-            self.status_label.setText("Vault does not exist. Create it first.")
+        except VaultExistsError:
+            QMessageBox.warning(
+                self,
+                "Vault Exists",
+                "A vault already exists at this location. Existing vaults are never overwritten.",
+            )
+            return
+        except KeyfileError as e:
+            QMessageBox.warning(self, "Key File Error", str(e))
+            return
+        except StorageError as e:
+            QMessageBox.critical(self, "Error", f"Failed to create vault: {e}")
             return
 
+        self.vault_path_input.clear()
+        self.keyfile_input.clear()
+        self.password_input.setFocus()
+        QMessageBox.information(
+            self, "Success", f"Vault created at: {data['path']}\nNow unlock it."
+        )
+
+    def _on_unlock(self):
+        vault_path = Path(self.vault_path_input.text())
+        keyfile_text = self.keyfile_input.text()
+        keyfile = Path(keyfile_text) if keyfile_text else None
+
+        vault = Storage(vault_path)
         try:
-            keyfile = Path(self.keyfile_input.text()) if self.keyfile_input.text() else None
-
-            vault = Storage(vault_path)
             vault.unlock(self.password_input.text(), keyfile)
-
+        except VaultNotFoundError:
+            self.status_label.setText("Vault does not exist. Create it first.")
+        except InvalidPasswordError:
+            self.status_label.setText("Invalid password or key file.")
+        except KeyfileError as e:
+            self.status_label.setText(str(e))
+        except TamperError:
+            self.status_label.setText("Vault is corrupted or was tampered with.")
+        except StorageError as e:
+            self.status_label.setText(f"Failed to unlock: {e}")
+        else:
             page = self._create_vault_page(vault)
             self.stack.setCurrentIndex(1)
             tab_index = self.tabs.addTab(page, vault.name)
             self.tabs.setCurrentIndex(tab_index)
-            self._update_window_title()
-
-            self.vault = vault
             self.status_label.setText("")
-            self.password_input.clear()
             self.vault_path_input.clear()
             self.keyfile_input.clear()
-        except Exception as e:
-            self.status_label.setText(f"Failed to unlock: {e}")
-
-    def _on_close_tab(self, index):
-        widget = self.tabs.widget(index)
-        if widget and hasattr(widget, 'vault'):
-            vault = widget.vault
-            if vault and vault.is_unlocked():
-                vault.lock()
-        self.tabs.removeTab(index)
-        if self.tabs.count() == 0:
-            self.stack.setCurrentIndex(0)
-            self.setWindowTitle("SecPass")
+            self._update_window_title()
+        finally:
+            self.password_input.clear()
 
     def _on_new_tab(self):
         self.stack.setCurrentIndex(0)
         self.vault_path_input.setFocus()
         self._update_window_title()
-
-    @property
-    def current_vault_widget(self):
-        return self.tabs.currentWidget()
-
-    def _update_window_title(self):
-        if self.stack.currentIndex() == 0:
-            self.setWindowTitle("SecPass")
-            return
-        widget = self.tabs.currentWidget()
-        if widget and hasattr(widget, 'vault') and widget.vault and widget.vault.is_unlocked():
-            vault = widget.vault
-            groups_count = len(vault.list_groups())
-            entries_count = len(vault.list_entries())
-            self.setWindowTitle(f"SecPass :: {vault.name} | groups: {groups_count} | entries: {entries_count}")
-        else:
-            self.setWindowTitle("SecPass")
-
 
 
 def main():

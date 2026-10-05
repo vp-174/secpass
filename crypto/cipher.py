@@ -1,15 +1,17 @@
 import os
-import base64
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
-from cryptography.hazmat.backends import default_backend
 
 
 class CipherSuite:
-    """Набор криптографических операций: вывод ключа, шифрование AES-256-CBC и ChaCha20."""
+    """Криптографические операции: вывод ключа (Argon2id)
+    и аутентифицированное шифрование AES-256-GCM."""
+
+    GCM_NONCE_SIZE = 12
 
     @staticmethod
     def derive_key(password: bytes, salt: bytes, memory: int = 65536, iterations: int = 3) -> bytes:
+        """Argon2id (64 MiB, 3 итерации, 4 линии) → 32-байтовый ключ."""
         kdf = Argon2id(
             salt=salt,
             length=32,
@@ -20,47 +22,21 @@ class CipherSuite:
         return kdf.derive(password)
 
     @staticmethod
-    def encrypt_aes_cbc(key: bytes, plaintext: bytes) -> bytes:
-        iv = os.urandom(16)
-        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-        encryptor = cipher.encryptor()
-        padding = 16 - (len(plaintext) % 16)
-        padded = plaintext + bytes([padding] * padding)
-        ciphertext = encryptor.update(padded) + encryptor.finalize()
-        return base64.b64encode(iv + ciphertext)
+    def encrypt_gcm(key: bytes, plaintext: bytes) -> bytes:
+        """AES-256-GCM: возвращает nonce(12) + шифротекст + тег."""
+        nonce = os.urandom(CipherSuite.GCM_NONCE_SIZE)
+        return nonce + AESGCM(key).encrypt(nonce, plaintext, None)
 
     @staticmethod
-    def decrypt_aes_cbc(key: bytes, ciphertext: bytes) -> bytes:
-        data = base64.b64decode(ciphertext)
-        iv = data[:16]
-        ct = data[16:]
-        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-        decryptor = cipher.decryptor()
-        padded = decryptor.update(ct) + decryptor.finalize()
-        padding = padded[-1]
-        if not (1 <= padding <= 16):
-            raise ValueError("Invalid padding")
-        for i in range(padding):
-            if padded[-(i+1)] != padding:
-                raise ValueError("Invalid padding bytes")
-        return padded[:-padding]
-
-    @staticmethod
-    def encrypt_chacha20(key: bytes, plaintext: bytes) -> bytes:
-        nonce = os.urandom(16)
-        cipher = Cipher(algorithms.ChaCha20(key, nonce), mode=None, backend=default_backend())
-        encryptor = cipher.encryptor()
-        ciphertext = encryptor.update(plaintext)
-        return base64.b64encode(nonce + ciphertext)
-
-    @staticmethod
-    def decrypt_chacha20(key: bytes, ciphertext: bytes) -> bytes:
-        data = base64.b64decode(ciphertext)
-        nonce = data[:16]
-        ct = data[16:]
-        cipher = Cipher(algorithms.ChaCha20(key, nonce), mode=None, backend=default_backend())
-        decryptor = cipher.decryptor()
-        return decryptor.update(ct)
+    def decrypt_gcm(key: bytes, data: bytes) -> bytes:
+        """AES-256-GCM: проверяет целостность, бросает InvalidTag при подделке."""
+        if len(data) <= CipherSuite.GCM_NONCE_SIZE:
+            raise ValueError("Invalid GCM payload")
+        return AESGCM(key).decrypt(
+            data[: CipherSuite.GCM_NONCE_SIZE],
+            data[CipherSuite.GCM_NONCE_SIZE :],
+            None,
+        )
 
     @staticmethod
     def generate_master_key() -> bytes:
